@@ -1,4 +1,5 @@
 import json
+from tqdm import tqdm
 from typing import Callable, List, Tuple
 from vllm import LLM, SamplingParams
 from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
@@ -29,7 +30,7 @@ if __name__ == "__main__":
         tmpl = fin.read()
 
     prompts_solns = []
-    for example in data:
+    for example in tqdm(data):
         prompt = tmpl.replace("{question}", example["question"])
         prompts_solns.append((prompt, example["answer"]))
 
