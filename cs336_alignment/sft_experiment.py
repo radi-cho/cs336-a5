@@ -75,7 +75,7 @@ def train_sft(
     learning_rate: float = 1e-5,
     gradient_accumulation_steps: int = 8,
     num_epochs: int = 3,
-    eval_every: int = 128,
+    eval_every: int = 64,
     eval_subset_size: int = 100,
 ):
     wandb.init(project="cs336-a5", entity="radi-cho")
