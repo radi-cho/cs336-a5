@@ -1,6 +1,7 @@
 import json
 import torch
 import wandb
+import gc
 from tqdm import tqdm
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
@@ -43,6 +44,12 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
+def clear_memory():
+    gc.collect()
+    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
 def train_sft(
     model_id: str,
     train_data_path: str,
@@ -66,6 +73,7 @@ def train_sft(
         eval_data = [json.loads(line) for line in f]
     
     device = "cuda:0"
+    clear_memory()
     
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -102,6 +110,8 @@ def train_sft(
     for _ in range(num_epochs):
         model.train()
         for batch in train_dataloader:
+            clear_memory()
+            
             prompts = batch["prompt"]
             responses = batch["response"]
             combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
@@ -117,16 +127,20 @@ def train_sft(
             labels = encodings.input_ids.clone()
             labels[labels == tokenizer.pad_token_id] = -100
             
-            torch.cuda.empty_cache()
-            
             outputs = model(**encodings, labels=labels)
             loss = outputs.loss / gradient_accumulation_steps
             loss.backward()
+            
+            del outputs
+            del encodings
+            del labels
+            clear_memory()
             
             if (train_step + 1) % gradient_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
+                clear_memory()
             
             print(f"Train Step {train_step} Loss: {loss.item() * gradient_accumulation_steps}")
             wandb.log({
@@ -135,6 +149,7 @@ def train_sft(
             })
             
             if train_step % eval_every == 0:
+                clear_memory()
                 prompt_template = load_prompt_template()
                 prompts_solns = []
                 for example in eval_data:
@@ -156,6 +171,7 @@ def train_sft(
                     "eval_step": eval_step
                 })
                 eval_step += 1
+                clear_memory()
             
             train_step += 1
     
