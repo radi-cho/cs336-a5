@@ -126,7 +126,7 @@ def train_sft(
 if __name__ == "__main__":
     model_id = "Qwen/Qwen1.5-1.5B-Math"
     train_data_path = "/data/a5-alignment/MATH/sft.jsonl"
-    eval_data_path = "/data/a5-alignment/MATH/val.jsonl"
+    eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
     output_dir = "sft_outputs"
     
     dataset_sizes = [128, 256, 512, 1024, None]
