@@ -32,7 +32,7 @@ def compute_group_normalized_rewards(
         group_means[g] = mean
 
         if normalize_by_std:
-            std = group_slice.std(unbiased=False)
+            std = group_slice.std()
             group_stds[g] = std
             denom = std + advantage_eps
             advantages[start:end] = (group_slice - mean) / denom
