@@ -31,6 +31,8 @@ if __name__ == "__main__":
 
     prompts_solns = []
     for example in tqdm(data):
+        print(example.keys())
+        raise
         prompt = tmpl.replace("{question}", example["question"])
         prompts_solns.append((prompt, example["answer"]))
 
