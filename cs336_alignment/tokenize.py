@@ -1,100 +1,103 @@
 import torch
+from typing import List, Dict
+from transformers import PreTrainedTokenizerBase
 
-def tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer):
+def tokenize_prompt_and_output(
+    prompt_strs: List[str],
+    output_strs: List[str],
+    tokenizer: PreTrainedTokenizerBase
+) -> Dict[str, torch.Tensor]:
     """
-    For each (prompt, output) pair in the batch:
-      1. Tokenize prompt_str and output_str separately (no special tokens).
-      2. Concatenate prompt_tokens + output_tokens into one list of token IDs.
-      3. Let L = len(concatenated). We drop the very last token to form input_ids of length (L-1),
-         and set labels to be the same sequence but shifted left by one (also length L-1).
-      4. Build response_mask so that positions of “labels” corresponding to output_tokens are True,
-         and everything else is False.  Padding positions → False.
-    
+    Tokenize the prompt and output strings, and construct a mask that is 1
+    for the response tokens (output) and 0 for other tokens (prompt or padding).
+
     Args:
-      prompt_strs:   List[str], batch of prompt strings (length = batch_size)
-      output_strs:   List[str], batch of output strings (length = batch_size)
-      tokenizer:     A HuggingFace PreTrainedTokenizer (e.g., GPT2Tokenizer, LlamaTokenizer, etc.)
-    
+        prompt_strs: list of prompt strings.
+        output_strs: list of output strings.
+        tokenizer: PreTrainedTokenizer to use for tokenization.
+
     Returns:
-      A dict with three keys (all torch.Tensor):
-        • "input_ids"     → LongTensor of shape (batch_size, max_len-1), padded with pad_token_id.
-        • "labels"        → LongTensor of shape (batch_size, max_len-1), padded with -100 where needed.
-        • "response_mask" → BoolTensor of shape (batch_size, max_len-1), True iff that label token
-                             belongs to the output (i.e. model response).
+        dict with keys:
+            "input_ids": Tensor of shape (batch_size, max_len - 1)
+                tokenized prompt+output sequences, with the final token removed.
+            "labels": Tensor of shape (batch_size, max_len - 1)
+                shifted input IDs (i.e., input_ids without the first token).
+            "response_mask": Tensor of shape (batch_size, max_len - 1)
+                mask indicating which positions in `labels` correspond to output tokens.
     """
-    batch_size = len(prompt_strs)
-    # 1) Tokenize prompts and outputs separately, WITHOUT adding special tokens.
-    prompt_tokens_list = [
-        tokenizer.encode(p, add_special_tokens=False)
-        for p in prompt_strs
-    ]
-    output_tokens_list = [
-        tokenizer.encode(o, add_special_tokens=False)
-        for o in output_strs
-    ]
-    
-    # 2) Concatenate token lists
-    full_tokens_list = [
-        p_tok + o_tok
-        for (p_tok, o_tok) in zip(prompt_tokens_list, output_tokens_list)
-    ]
-    lengths = [len(ft) for ft in full_tokens_list]
-    
-    # If an example had length < 1 (very unlikely in practice), clamp to 1 so we don't end up with negative dims
-    max_len = max(max(lengths), 1)
-    # Since we will drop the VERY LAST token ("<last>") in order to create input_ids of length (L-1),
-    # the final tensors have shape (batch_size, max_len-1).
-    seq_len = max_len - 1
-    
-    # 3) Decide on pad_token_id.  If the tokenizer already has a pad_token, use that; otherwise fall back to eos_token_id.
-    if tokenizer.pad_token_id is not None:
-        pad_token_id = tokenizer.pad_token_id
-    else:
-        pad_token_id = tokenizer.eos_token_id
-    
-    # Prepare empty tensors:
-    #   input_ids:   LongTensor, filled with pad_token_id by default.
-    #   labels:      LongTensor, filled with -100 by default (so that loss is ignored there).
-    #   response_mask: BoolTensor, filled with False by default.
-    input_ids = torch.full((batch_size, seq_len), pad_token_id, dtype=torch.long)
-    labels = torch.full((batch_size, seq_len), -100, dtype=torch.long)
-    response_mask = torch.zeros((batch_size, seq_len), dtype=torch.bool)
-    
-    # 4) For each example in the batch, fill in:
-    #    • input_ids[i, :L-1] = full_tokens_list[i][0 : L-1]
-    #    • labels[i,    :L-1] = full_tokens_list[i][1 : L]
-    #    • then build response_mask based on where the "label tokens" correspond to the output portion.
-    for i in range(batch_size):
-        ft = full_tokens_list[i]
-        L = len(ft)
-        if L < 2:
-            # If the concatenation is length 0 or 1, we can't form (L-1) properly; skip or leave it padded
-            continue
-        
-        # 4a) Copy into input_ids and labels
-        tokens_input = ft[: (L - 1)]
-        tokens_label = ft[1 : L]
-        input_ids[i, : (L - 1)] = torch.tensor(tokens_input, dtype=torch.long)
-        labels[i,    : (L - 1)] = torch.tensor(tokens_label, dtype=torch.long)
-        
-        # 4b) Build a mask of length=L indicating which of the full tokens belong to the output (i.e. response).
-        #     prompt_len = len(prompt_tokens_list[i])
-        #     So indices 0..(prompt_len-1) are prompt, and indices prompt_len..(L-1) are output.
-        p_len = len(prompt_tokens_list[i])
-        
-        # mask_full[j] == True  ↔ concatenated token at index j is part of the output.
-        mask_full = [False]*p_len + [True]*(L - p_len)
-        
-        # Now, our "labels" vector at position j corresponds to original token at index (j+1).
-        # So we set response_mask[i, j] = mask_full[j + 1], for j in [0 .. L-2].
-        for j in range(L - 1):
-            if mask_full[j + 1]:
-                response_mask[i, j] = True
-            else:
-                response_mask[i, j] = False
-    
+    batch_input_ids = []
+    batch_labels = []
+    batch_masks = []
+
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+    for prompt, output in zip(prompt_strs, output_strs):
+        # Tokenize prompt and output separately (no special tokens)
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        output_ids = tokenizer(output, add_special_tokens=False)["input_ids"]
+
+        # Concatenate prompt + output
+        full_ids = prompt_ids + output_ids
+        seq_len = len(full_ids)
+
+        # Build input_ids (drop last token) and labels (drop first token)
+        input_ids_i = full_ids[:-1]
+        labels_i = full_ids[1:]
+
+        # Create a boolean mask of length = seq_len indicating response tokens
+        # (output positions are True for full_ids indices >= prompt_len)
+        prompt_len = len(prompt_ids)
+        output_len = len(output_ids)
+        # mask_full has length seq_len
+        mask_full = [False] * prompt_len + [True] * output_len
+        # labels_mask = mask_full shifted by one (drop first position)
+        labels_mask = mask_full[1:]
+
+        batch_input_ids.append(torch.tensor(input_ids_i, dtype=torch.long))
+        # For labels, pad value should be -100 so that loss is ignored on padding places
+        batch_labels.append(torch.tensor(labels_i, dtype=torch.long))
+        batch_masks.append(torch.tensor(labels_mask, dtype=torch.long))
+
+    # Determine max length across the batch
+    max_len = max(x.size(0) for x in batch_input_ids)
+
+    # Pad sequences in batch to max_len
+    input_ids_padded = []
+    labels_padded = []
+    masks_padded = []
+
+    for input_ids_i, labels_i, mask_i in zip(batch_input_ids, batch_labels, batch_masks):
+        cur_len = input_ids_i.size(0)
+        padding_length = max_len - cur_len
+
+        # Pad input_ids with pad_token_id
+        padded_input = torch.cat([
+            input_ids_i,
+            torch.full((padding_length,), pad_token_id, dtype=torch.long)
+        ])
+        input_ids_padded.append(padded_input)
+
+        # Pad labels with -100
+        padded_labels = torch.cat([
+            labels_i,
+            torch.full((padding_length,), -100, dtype=torch.long)
+        ])
+        labels_padded.append(padded_labels)
+
+        # Pad mask with 0
+        padded_mask = torch.cat([
+            mask_i,
+            torch.zeros((padding_length,), dtype=torch.long)
+        ])
+        masks_padded.append(padded_mask)
+
+    # Stack into batch tensors
+    batch_input_ids = torch.stack(input_ids_padded, dim=0)
+    batch_labels = torch.stack(labels_padded, dim=0)
+    batch_masks = torch.stack(masks_padded, dim=0)
+
     return {
-        "input_ids": input_ids,
-        "labels": labels,
-        "response_mask": response_mask
+        "input_ids": batch_input_ids,
+        "labels": batch_labels,
+        "response_mask": batch_masks
     }
