@@ -151,6 +151,7 @@ def train_sft(
 
                 vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.2)
                 accuracy = run_evaluation(eval_data, vllm_model)
+                print(f"Eval Step {eval_step} Accuracy: {accuracy:.2%}")
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
