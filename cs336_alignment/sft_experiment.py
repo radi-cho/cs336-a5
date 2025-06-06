@@ -45,12 +45,7 @@ def collate_fn(batch):
     return {"prompt": prompts, "response": responses}
 
 def run_evaluation(eval_data, vllm_model):
-    eval_sampling_params = SamplingParams(
-        temperature=0.0,
-        top_p=1.0,
-        max_tokens=512,
-        stop=["</answer>"]
-    )
+    eval_sampling_params = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=1024, stop=["</answer>"])
     eval_sampling_params.include_stop_str_in_output = True
     
     prompt_template = load_prompt_template()
@@ -121,13 +116,7 @@ def train_sft(
             responses = batch["response"]
             combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
             
-            encodings = tokenizer(
-                combined_texts,
-                padding=True,
-                truncation=True,
-                max_length=512,
-                return_tensors="pt"
-            )
+            encodings = tokenizer(combined_texts, padding=True, truncation=True, max_length=1024, return_tensors="pt")
             
             input_ids = encodings.input_ids.to(device)
             attention_mask = encodings.attention_mask.to(device)
@@ -157,6 +146,7 @@ def train_sft(
                 model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
 
+                print(str(checkpoint_path))
                 vllm_model = LLM(model=str(checkpoint_path))
                 accuracy = run_evaluation(eval_data, vllm_model)
                 wandb.log({

@@ -34,8 +34,7 @@ if __name__ == "__main__":
         prompt = tmpl.replace("{question}", example["problem"])
         prompts_solns.append((prompt, example["answer"]))
 
-    # llm = LLM(model="/data/a5-alignment/models/Qwen2.5-Math-1.5B")
-    llm = LLM(model="/home/c-radicho/cs336-a5/sft_outputs/size_128/temp_checkpoints/checkpoint_99")
+    llm = LLM(model="/data/a5-alignment/models/Qwen2.5-Math-1.5B")
     sampling_params = SamplingParams(temperature=1.0, top_p=1.0, max_tokens=1024, stop=["</answer>"])
     sampling_params.include_stop_str_in_output = True
 
