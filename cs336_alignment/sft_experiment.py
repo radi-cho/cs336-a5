@@ -164,12 +164,12 @@ def train_sft(
                 shutil.rmtree(checkpoint_path)
 
             train_step += 1
-    
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_path / "final_model")
     tokenizer.save_pretrained(output_path / "final_model")
-    
+
     print("\nRunning final evaluation on full dataset...")
     vllm_model = LLM(model=str(output_path / "final_model"), gpu_memory_utilization=0.2)
     final_accuracy = run_evaluation(eval_data, vllm_model)
@@ -178,9 +178,9 @@ def train_sft(
         "eval/final_accuracy": final_accuracy,
         "eval_step": eval_step
     })
-    
+
     shutil.rmtree(temp_checkpoint_dir)
-    
+
     wandb.finish()
 
 if __name__ == "__main__":
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     train_data_path = "/data/a5-alignment/MATH/sft.jsonl"
     eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
     output_dir = "sft_outputs"
-    
+
     dataset_sizes = [128, 256, 512, 1024, None]
     for size in dataset_sizes:
         train_sft(
@@ -202,19 +202,19 @@ if __name__ == "__main__":
             num_epochs=4,
             eval_subset_size=100
         )
-    
+
     filtered_examples = []
     with open(train_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
             if "answer" in example and example["answer"]:
                 filtered_examples.append(example)
-    
+
     filtered_data_path = f"{output_dir}/filtered_sft.jsonl"
     with open(filtered_data_path, "w") as f:
         for example in filtered_examples:
             f.write(json.dumps(example) + "\n")
-    
+
     train_sft(
         model_id=model_id,
         train_data_path=filtered_data_path,
