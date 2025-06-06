@@ -157,10 +157,8 @@ def train_sft(
                 model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
                 
-                # Print free GPU memory
-                free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
-                print(f"\nFree GPU memory before loading vLLM model: {free_memory / 1024**3:.2f} GB")
-                
+                torch.cuda.empty_cache()
+
                 vllm_model = LLM(model=str(checkpoint_path))
                 accuracy = run_evaluation(eval_data, vllm_model)
                 wandb.log({
@@ -168,7 +166,7 @@ def train_sft(
                     "eval_step": eval_step
                 })
                 eval_step += 1
-
+                
                 shutil.rmtree(checkpoint_path)
                 model.to(device)
             
