@@ -3,7 +3,7 @@ import torch
 import wandb
 from tqdm import tqdm
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -20,7 +20,7 @@ class MATHDataset(Dataset):
                 example = json.loads(line)
                 prompt = example["prompt"]
                 response = example["response"]
-
+                
                 self.examples.append({
                     "prompt": prompt,
                     "response": response,
@@ -40,32 +40,60 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
-def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: List[Dict], device: str, batch_size: int = 8) -> float:
+def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: List[Dict], device: str, batch_size: int = 8) -> List[Dict]:
     model.eval()
-    correct = 0
-    total = 0
     prompt_template = load_prompt_template()
     
-    for i in tqdm(range(0, len(eval_data), batch_size)):
-        batch = eval_data[i:i + batch_size]
-        prompts = [prompt_template.replace("{question}", example["problem"]) for example in batch]
+    # Prepare prompts and solutions
+    prompts_solns = []
+    for example in eval_data:
+        prompt = prompt_template.replace("{question}", example["problem"])
+        prompts_solns.append((prompt, example["answer"]))
+    
+    results = []
+    for i in tqdm(range(0, len(prompts_solns), batch_size)):
+        batch_prompts_solns = prompts_solns[i:i + batch_size]
+        prompts = [p for p, _ in batch_prompts_solns]
         
+        # Generate responses
         inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
         with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=512, pad_token_id=tokenizer.eos_token_id)
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=512,
+                pad_token_id=tokenizer.eos_token_id,
+                do_sample=False  # Use greedy decoding for evaluation
+            )
         
+        # Process results
         responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        
-        for response, example in zip(responses, batch):
+        for (prompt, solution), response in zip(batch_prompts_solns, responses):
             if "<answer>" in response:
                 pred_answer = response.split("<answer>")[-1].split("</answer>")[0].strip()
-                true_answer = example["answer"]
-                if pred_answer == true_answer:
-                    correct += 1
-            total += 1
+                score = 1.0 if pred_answer == solution else 0.0
+            else:
+                pred_answer = ""
+                score = 0.0
+            
+            results.append({
+                "prompt": prompt,
+                "solution": solution,
+                "pred": response,
+                "score": score
+            })
+    
+    # Calculate accuracy
+    correct = sum(1 for r in results if r["score"] == 1.0)
+    accuracy = correct / len(results) if results else 0.0
+    
+    # Print evaluation summary
+    print("\nEvaluation Summary:")
+    print(f"Total examples: {len(results)}")
+    print(f"Correct answers: {correct}")
+    print(f"Accuracy: {accuracy:.2%}")
     
     model.train()
-    return correct / total if total > 0 else 0.0
+    return results
 
 def train_sft(
     model_id: str,
@@ -139,7 +167,8 @@ def train_sft(
             })
             
             if train_step % eval_every == 0:
-                accuracy = evaluate_model(model, tokenizer, eval_data, device)
+                eval_results = evaluate_model(model, tokenizer, eval_data, device)
+                accuracy = sum(1 for r in eval_results if r["score"] == 1.0) / len(eval_results)
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
