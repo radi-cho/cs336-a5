@@ -42,7 +42,10 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
-def run_evaluation(eval_data, model_id):
+def run_evaluation(eval_data, model_id, training_model):
+    training_model.to("cpu")
+    torch.cuda.empty_cache()
+    
     vllm_model = LLM(model=model_id)
     eval_sampling_params = SamplingParams(
         temperature=0.0,
@@ -67,7 +70,11 @@ def run_evaluation(eval_data, model_id):
     print(f"Total examples: {len(eval_results)}")
     print(f"Correct answers: {correct}")
     print(f"Accuracy: {accuracy:.2%}")
-
+    
+    del vllm_model
+    training_model.to("cuda:0")
+    torch.cuda.empty_cache()
+    
     return accuracy
 
 def train_sft(
@@ -148,7 +155,7 @@ def train_sft(
             })
             
             if (train_step + 1) % eval_every == 0:
-                accuracy = run_evaluation(eval_data, model_id)
+                accuracy = run_evaluation(eval_data, model_id, model)
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
