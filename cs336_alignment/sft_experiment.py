@@ -1,6 +1,7 @@
 import json
 import torch
 import wandb
+from tqdm import tqdm
 from pathlib import Path
 from typing import List, Dict, Optional
 from torch.utils.data import Dataset, DataLoader
@@ -45,7 +46,7 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
     total = 0
     prompt_template = load_prompt_template()
     
-    for i in range(0, len(eval_data), batch_size):
+    for i in tqdm(range(0, len(eval_data), batch_size)):
         batch = eval_data[i:i + batch_size]
         prompts = [prompt_template.replace("{question}", example["problem"]) for example in batch]
         
@@ -131,6 +132,7 @@ def train_sft(
             optimizer.step()
             optimizer.zero_grad()
             
+            print(f"Train Step {train_step} Loss: {loss.item()}")
             wandb.log({
                 "train/loss": loss.item(),
                 "train_step": train_step
