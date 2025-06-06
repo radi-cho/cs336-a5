@@ -16,16 +16,11 @@ def analyze_math_results(file_path):
 
             if fmt == 1 and ans == 1:
                 count_format_and_answer_correct += 1
-                if count_format_and_answer_correct == 1:
-                    print(record)
             elif fmt == 1 and ans == 0:
                 count_format_correct_answer_incorrect += 1
-                if count_format_correct_answer_incorrect == 1:
-                    print(record)
             elif fmt == 0 and ans == 0:
                 count_format_and_answer_incorrect += 1
-                if count_format_and_answer_incorrect == 1:
-                    print(record)
+                print(record)
 
     accuracy = count_format_and_answer_correct / total if total > 0 else 0.0
 
