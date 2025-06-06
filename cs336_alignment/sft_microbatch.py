@@ -1,8 +1,5 @@
 import torch
 
-from cs336_alignment.response_logprobs import get_response_log_probs
-from cs336_alignment.masked_normalize import masked_normalize
-
 
 def sft_microbatch_train_step(
     policy_log_probs: torch.Tensor,
@@ -10,16 +7,13 @@ def sft_microbatch_train_step(
     gradient_accumulation_steps: int,
     normalize_constant: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    response_mask = response_mask.to(policy_log_probs.dtype)
-    mask_sum = response_mask.sum()
-    denom = normalize_constant if normalize_constant != 1.0 else mask_sum.clamp(min=1.0)
-    avg_log_prob = masked_normalize(policy_log_probs, response_mask, denom)
-    avg_neg_log_prob = -avg_log_prob
-    loss = avg_neg_log_prob / gradient_accumulation_steps
-    loss.backward()
-    total_response_tokens = mask_sum
+    batch_size = policy_log_probs.shape[0]
+    masked_log_probs = policy_log_probs * response_mask
+    total_loss = -masked_log_probs.sum() / (normalize_constant * gradient_accumulation_steps * batch_size)
+    total_loss.backward()
     metadata = {
-        "total_response_tokens": total_response_tokens.detach(),
-        "avg_loss_per_token": avg_neg_log_prob.detach(),
+        "raw_loss": (-masked_log_probs.sum() / normalize_constant).detach(),
+        "num_response_tokens": response_mask.sum().detach(),
     }
-    return loss, metadata
+
+    return total_loss, metadata
