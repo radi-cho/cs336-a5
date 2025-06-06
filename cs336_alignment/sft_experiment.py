@@ -206,6 +206,7 @@ if __name__ == "__main__":
             learning_rate=1e-5,
             gradient_accumulation_steps=8,
             num_epochs=4,
+            eval_every=512 if size and size >= 1024 else 64,
             eval_subset_size=100
         )
 
