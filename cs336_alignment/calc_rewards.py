@@ -1,25 +1,33 @@
 import json
 
-results_path = "math_zero_results.jsonl"
-correct_both = 0
-correct_format_only = 0
-incorrect_both = 0
-total = 0
+def analyze_math_results(file_path):
+    count_format_and_answer_correct = 0
+    count_format_correct_answer_incorrect = 0
+    count_format_and_answer_incorrect = 0
+    total = 0
 
-with open(results_path, "r") as fin:
-    for line in fin:
-        result = json.loads(line)
-        score = result["score"]
-        total += 1
-        if score["format"] == 1 and score["answer"] == 1:
-            correct_both += 1
-        elif score["format"] == 1 and score["answer"] == 0:
-            correct_format_only += 1
-        elif score["format"] == 0 and score["answer"] == 0:
-            incorrect_both += 1
+    with open(file_path, "r") as fin:
+        for line in fin:
+            total += 1
+            record = json.loads(line)
+            score = record.get("score", {})
+            fmt = score.get("format", 0)
+            ans = score.get("answer", 0)
 
-print(f"(1) Correct (format=1, answer=1): {correct_both}")
-print(f"(2) Format only (format=1, answer=0): {correct_format_only}")
-print(f"(3) Incorrect format and answer (format=0, answer=0): {incorrect_both}")
-print(f"Total evaluated: {total}")
-print(f"Zero-shot baseline accuracy: {correct_both / total:.4f}")
+            if fmt == 1 and ans == 1:
+                count_format_and_answer_correct += 1
+            elif fmt == 1 and ans == 0:
+                count_format_correct_answer_incorrect += 1
+            elif fmt == 0 and ans == 0:
+                count_format_and_answer_incorrect += 1
+
+    accuracy = count_format_and_answer_correct / total if total > 0 else 0.0
+
+    print(f"Total examples evaluated: {total}")
+    print(f"1) format=1, answer=1, {count_format_and_answer_correct}")
+    print(f"2) format=1, answer=0, {count_format_correct_answer_incorrect}")
+    print(f"3) format=0, answer=0, {count_format_and_answer_incorrect}")
+    print(f"accuracy: {accuracy:.2%}")
+
+if __name__ == "__main__":
+    analyze_math_results("math_zero_results.jsonl")
