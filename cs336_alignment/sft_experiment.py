@@ -19,7 +19,10 @@ class MATHDataset(Dataset):
         with open(data_path, "r") as f:
             for line in f:
                 example = json.loads(line)
-                self.examples.append(example)
+                self.examples.append({
+                    "prompt": example["prompt"],
+                    "response": example["response"]
+                })
                 if max_examples and len(self.examples) >= max_examples:
                     break
 
@@ -135,7 +138,7 @@ if __name__ == "__main__":
             model_id=model_id,
             train_data_path=train_data_path,
             eval_data_path=eval_data_path,
-            output_dir=f"{output_dir}/size_{size if size else "full"}",
+            output_dir=f"{output_dir}/size_{size if size else 'full'}",
             num_examples=size,
             learning_rate=1e-5,
             batch_size=8,
@@ -164,6 +167,6 @@ if __name__ == "__main__":
         output_dir=f"{output_dir}/filtered",
         learning_rate=1e-5,
         batch_size=8,
-        num_epochs=3
+        num_epochs=4
     )
 
