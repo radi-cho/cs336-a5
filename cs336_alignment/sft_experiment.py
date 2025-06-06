@@ -1,6 +1,7 @@
 import json
 import torch
 import wandb
+import shutil
 from pathlib import Path
 from typing import Optional
 from torch.utils.data import Dataset, DataLoader
@@ -8,6 +9,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM, SamplingParams
 from cs336_alignment.evaluate_vllm import evaluate_vllm
 from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+
 
 def load_prompt_template():
     with open("cs336_alignment/prompts/r1_zero.prompt") as f:
@@ -42,11 +44,7 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
-def run_evaluation(eval_data, model_id, training_model):
-    training_model.to("cpu")
-    torch.cuda.empty_cache()
-    
-    vllm_model = LLM(model=model_id)
+def run_evaluation(eval_data, vllm_model):
     eval_sampling_params = SamplingParams(
         temperature=0.0,
         top_p=1.0,
@@ -70,11 +68,7 @@ def run_evaluation(eval_data, model_id, training_model):
     print(f"Total examples: {len(eval_results)}")
     print(f"Correct answers: {correct}")
     print(f"Accuracy: {accuracy:.2%}")
-    
-    del vllm_model
-    training_model.to("cuda:0")
-    torch.cuda.empty_cache()
-    
+
     return accuracy
 
 def train_sft(
@@ -117,6 +111,9 @@ def train_sft(
     eval_step = 0
     optimizer.zero_grad()
     
+    temp_checkpoint_dir = Path(output_dir) / "temp_checkpoints"
+    temp_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    
     for _ in range(num_epochs):
         model.train()
         for batch in train_dataloader:
@@ -155,12 +152,23 @@ def train_sft(
             })
             
             if (train_step + 1) % eval_every == 0:
-                accuracy = run_evaluation(eval_data, model_id, model)
+                # Move model to CPU and save checkpoint
+                model.cpu()
+                checkpoint_path = temp_checkpoint_dir / f"checkpoint_{train_step}"
+                model.save_pretrained(checkpoint_path)
+                tokenizer.save_pretrained(checkpoint_path)
+                
+                # Load model with vLLM for evaluation
+                vllm_model = LLM(model=str(checkpoint_path))
+                accuracy = run_evaluation(eval_data, vllm_model)
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
                 })
                 eval_step += 1
+
+                shutil.rmtree(checkpoint_path)
+                model.to(device)
             
             train_step += 1
     
@@ -168,6 +176,8 @@ def train_sft(
     output_path.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_path / "final_model")
     tokenizer.save_pretrained(output_path / "final_model")
+    
+    shutil.rmtree(temp_checkpoint_dir)
     
     wandb.finish()
 
