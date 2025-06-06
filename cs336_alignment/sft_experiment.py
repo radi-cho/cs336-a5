@@ -43,14 +43,7 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
-def clear_memory():
-    gc.collect()
-    torch.cuda.empty_cache()
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-
 def run_evaluation(eval_data, model_id):
-    clear_memory()
     vllm_model = LLM(model=model_id)
     eval_sampling_params = SamplingParams(
         temperature=0.0,
@@ -75,11 +68,7 @@ def run_evaluation(eval_data, model_id):
     print(f"Total examples: {len(eval_results)}")
     print(f"Correct answers: {correct}")
     print(f"Accuracy: {accuracy:.2%}")
-    
-    # Clear vLLM model from memory
-    del vllm_model
-    clear_memory()
-    
+
     return accuracy
 
 def train_sft(
@@ -105,7 +94,6 @@ def train_sft(
         eval_data = [json.loads(line) for line in f]
     
     device = "cuda:0"
-    clear_memory()
     
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -113,9 +101,6 @@ def train_sft(
         device_map="auto",
         use_cache=False
     )
-    
-    # Enable gradient checkpointing to save memory
-    model.gradient_checkpointing_enable()
     
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -136,13 +121,10 @@ def train_sft(
     for _ in range(num_epochs):
         model.train()
         for batch in train_dataloader:
-            clear_memory()
-            
             prompts = batch["prompt"]
             responses = batch["response"]
             combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
             
-            # Move to CPU after tokenization to save GPU memory
             encodings = tokenizer(
                 combined_texts,
                 padding=True,
@@ -151,39 +133,21 @@ def train_sft(
                 return_tensors="pt"
             )
             
-            # Move only necessary tensors to GPU
             input_ids = encodings.input_ids.to(device)
             attention_mask = encodings.attention_mask.to(device)
             
             labels = input_ids.clone()
             labels[labels == tokenizer.pad_token_id] = -100
             
-            # Clear CPU tensors
-            del encodings
-            clear_memory()
-            
-            # Forward pass with gradient checkpointing
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
-            )
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             
             loss = outputs.loss / gradient_accumulation_steps
             loss.backward()
-            
-            # Clear GPU tensors
-            del outputs
-            del input_ids
-            del attention_mask
-            del labels
-            clear_memory()
             
             if (train_step + 1) % gradient_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 optimizer.zero_grad()
-                clear_memory()
             
             print(f"Train Step {train_step} Loss: {loss.item() * gradient_accumulation_steps}")
             wandb.log({
@@ -248,4 +212,3 @@ if __name__ == "__main__":
         gradient_accumulation_steps=8,
         num_epochs=4
     )
-
