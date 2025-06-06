@@ -12,32 +12,31 @@ def tokenize_prompt_and_output(
     batch_labels = []
     batch_masks = []
 
-    # Use the tokenizer’s pad_token_id (instead of hard‐coded 0)
+    # Use whatever the tokenizer considers its pad ID:
     pad_token_id = tokenizer.pad_token_id
 
     for prompt, output in zip(prompt_strs, output_strs):
         prompt_ids = tokenizer(prompt)["input_ids"]
         output_ids = tokenizer(output)["input_ids"]
 
+        # “full_ids” = [ all of the prompt tokens (including EOS) ] + [ all of the output tokens (including EOS) ]
         full_ids = prompt_ids + output_ids
 
-        # Shifted inputs/labels for next‐token prediction:
-        input_ids_i = full_ids[:-1]
-        labels_i = full_ids[1:]
+        # Now we want input_ids to be exactly that “prompt+output” sequence:
+        input_ids_i = full_ids[:]          # keep all of them
+        labels_i    = full_ids[:]          # copy the same; loss will be masked on prompt by `response_mask`
 
+        # Build a boolean mask that is False for the prompt‐positions and True for the output‐positions.
+        # (We do NOT shift it by one here—just keep it aligned with full_ids.)
         prompt_len = len(prompt_ids)
         output_len = len(output_ids)
-
-        # We only compute loss on the “output” tokens, not the prompt.
         mask_full = [False] * prompt_len + [True] * output_len
-        labels_mask = mask_full[1:]  # because labels_i = full_ids[1:]
 
         batch_input_ids.append(torch.tensor(input_ids_i, dtype=torch.long))
-        batch_labels.append(torch.tensor(labels_i, dtype=torch.long))
-        # Convert bool→long so that masked positions are 1, others 0
-        batch_masks.append(torch.tensor(labels_mask, dtype=torch.long))
+        batch_labels.append(torch.tensor(labels_i,    dtype=torch.long))
+        batch_masks.append(torch.tensor(mask_full,    dtype=torch.long))
 
-    # Pad everything out to the maximum length in this batch
+    # Find the longest “prompt+output” in this batch:
     max_len = max(x.size(0) for x in batch_input_ids)
 
     input_ids_padded = []
@@ -48,21 +47,21 @@ def tokenize_prompt_and_output(
         cur_len = input_ids_i.size(0)
         padding_length = max_len - cur_len
 
-        # Pad input_ids with pad_token_id
+        # 1) Pad input_ids with pad_token_id
         padded_input = torch.cat([
             input_ids_i,
             torch.full((padding_length,), pad_token_id, dtype=torch.long)
         ])
         input_ids_padded.append(padded_input)
 
-        # Pad labels with -100 so that loss is ignored on those positions
+        # 2) Pad labels with -100 so that cross‐entropy loss ignores those positions
         padded_labels = torch.cat([
             labels_i,
             torch.full((padding_length,), -100, dtype=torch.long)
         ])
         labels_padded.append(padded_labels)
 
-        # Pad the mask with 0s (we only want 1s where the model should compute loss)
+        # 3) Pad the mask with 0 (so post‐padding positions are never counted in the “True” ones)
         padded_mask = torch.cat([
             mask_i,
             torch.zeros((padding_length,), dtype=torch.long)
@@ -70,11 +69,11 @@ def tokenize_prompt_and_output(
         masks_padded.append(padded_mask)
 
     batch_input_ids = torch.stack(input_ids_padded, dim=0)
-    batch_labels = torch.stack(labels_padded, dim=0)
-    batch_masks = torch.stack(masks_padded, dim=0)
+    batch_labels    = torch.stack(labels_padded,    dim=0)
+    batch_masks     = torch.stack(masks_padded,     dim=0)
 
     return {
-        "input_ids": batch_input_ids,
-        "labels": batch_labels,
+        "input_ids":     batch_input_ids,
+        "labels":        batch_labels,
         "response_mask": batch_masks
     }
