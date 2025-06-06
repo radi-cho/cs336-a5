@@ -93,8 +93,7 @@ def train_sft(
         eval_data = [json.loads(line) for line in f]
     
     device = "cuda:0"
-
-    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
