@@ -50,7 +50,7 @@ def train_sft(
     output_dir: str,
     num_examples: Optional[int] = None,
     learning_rate: float = 1e-5,
-    batch_size: int = 4,
+    gradient_accumulation_steps: int = 8,
     num_epochs: int = 3,
     eval_every: int = 100,
 ):
@@ -73,7 +73,6 @@ def train_sft(
         device_map="auto",
         use_cache=False
     )
-    model.gradient_checkpointing_enable()
     
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -91,13 +90,14 @@ def train_sft(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=batch_size, 
+        batch_size=1,
         shuffle=True,
         collate_fn=collate_fn
     )
     
     train_step = 0
     eval_step = 0
+    optimizer.zero_grad()
     
     for _ in range(num_epochs):
         model.train()
@@ -120,16 +120,17 @@ def train_sft(
             torch.cuda.empty_cache()
             
             outputs = model(**encodings, labels=labels)
-            loss = outputs.loss
+            loss = outputs.loss / gradient_accumulation_steps
             loss.backward()
             
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            optimizer.zero_grad()
+            if (train_step + 1) % gradient_accumulation_steps == 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
             
-            print(f"Train Step {train_step} Loss: {loss.item()}")
+            print(f"Train Step {train_step} Loss: {loss.item() * gradient_accumulation_steps}")
             wandb.log({
-                "train/loss": loss.item(),
+                "train/loss": loss.item() * gradient_accumulation_steps,
                 "train_step": train_step
             })
             
@@ -180,7 +181,7 @@ if __name__ == "__main__":
             output_dir=f"{output_dir}/size_{size if size else 'full'}",
             num_examples=size,
             learning_rate=1e-5,
-            batch_size=4,
+            gradient_accumulation_steps=8,
             num_epochs=4
         )
     
@@ -202,7 +203,7 @@ if __name__ == "__main__":
         eval_data_path=eval_data_path,
         output_dir=f"{output_dir}/filtered",
         learning_rate=1e-5,
-        batch_size=4,
+        gradient_accumulation_steps=8,
         num_epochs=4
     )
 
