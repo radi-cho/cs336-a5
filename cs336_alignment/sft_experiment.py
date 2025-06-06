@@ -12,6 +12,7 @@ class MATHDataset(Dataset):
         with open(data_path, "r") as f:
             for line in f:
                 example = json.loads(line)
+                print(example)
                 self.examples.append({
                     "problem": example["problem"],
                     "answer": example["answer"]
