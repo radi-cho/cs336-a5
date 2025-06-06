@@ -7,25 +7,40 @@ def sft_microbatch_train_step(
     gradient_accumulation_steps: int,
     normalize_constant: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    # ensure mask is same dtype as log_probs
+    """
+    – policy_log_probs: a float‐Tensor of shape (batch_size, seq_len) containing log‐probabilities.
+    – response_mask:   a float‐ (or int‐)Tensor of the same shape, with 1.0 for “response tokens” and 0.0 elsewhere.
+    – gradient_accumulation_steps: the integer factor by which to divide the final loss.
+    – normalize_constant: the float (often equal to the number of response‐tokens) by which to normalize the
+      *sum* of log‐probs before applying gradient accumulation.
+
+    Returns (loss, metadata) where:
+      • loss is a scalar Tensor such that
+          loss = – total( policy_log_probs * response_mask ) 
+                 / (normalize_constant * gradient_accumulation_steps),
+        and then loss.backward() is called.
+      • metadata["avg_loss_per_token"] = – total_log_prob / total_response_tokens  (i.e. per‐token‐avg, for logging).
+      • metadata["total_response_tokens"] = total_response_tokens (just the mask‐sum).
+    """
+    # 1) Make sure mask is same dtype as log‐probs
     response_mask = response_mask.to(dtype=policy_log_probs.dtype)
 
-    # zero out any positions not in the response
+    # 2) Zero out non‐response positions
     masked_log_probs = policy_log_probs * response_mask
 
-    # sum of all log‐probs over response tokens
+    # 3) Sum of log‐probs over all “1” positions in the mask
     total_log_prob = masked_log_probs.sum()
 
-    # count how many “1”s are in the mask
+    # 4) Count how many tokens (i.e. sum of mask)
     total_response_tokens = response_mask.sum()
 
-    # for metadata: the true “avg negative log‐prob per token”
+    # 5) For metadata: the true “average negative log‐prob” per token
     safe_token_count = total_response_tokens.clamp(min=1.0)
     avg_neg_log_prob = -total_log_prob / safe_token_count
 
-    # ── HERE'S THE ONE‐LINER FOR LOSS ──
-    # divide the *raw* negative log‐prob once by normalize_constant,
-    # and once by gradient_accumulation_steps
+    # ──────── THE ACTUAL LOSS ────────
+    # Divide the *raw* negative log‐prob once by normalize_constant, 
+    # and once by gradient_accumulation_steps:
     loss = -total_log_prob / (normalize_constant * gradient_accumulation_steps)
     loss.backward()
 
