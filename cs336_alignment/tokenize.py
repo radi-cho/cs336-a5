@@ -2,6 +2,7 @@ import torch
 from typing import List, Dict
 from transformers import PreTrainedTokenizerBase
 
+
 def tokenize_prompt_and_output(
     prompt_strs: List[str],
     output_strs: List[str],
