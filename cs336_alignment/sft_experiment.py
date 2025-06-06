@@ -167,7 +167,7 @@ def train_sft(
                 "train_step": train_step
             })
             
-            if train_step % eval_every == 0:
+            if (train_step + 1) % eval_every == 0:
                 clear_memory()
                 prompt_template = load_prompt_template()
                 prompts_solns = []
