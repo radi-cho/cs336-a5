@@ -60,7 +60,7 @@ def train_sft(
     num_epochs: int = 3,
     eval_every: int = 100,
 ):
-    wandb.init("cs336 a5")
+    wandb.init(project="cs336-a5", entity="radi-cho")
     
     wandb.define_metric("train_step")
     wandb.define_metric("eval_step")
