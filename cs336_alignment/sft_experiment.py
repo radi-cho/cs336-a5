@@ -56,7 +56,7 @@ def train_sft(
     output_dir: str,
     num_examples: Optional[int] = None,
     learning_rate: float = 1e-5,
-    gradient_accumulation_steps: int = 8,
+    gradient_accumulation_steps: int = 4,
     num_epochs: int = 3,
     eval_every: int = 100,
 ):
@@ -196,7 +196,7 @@ if __name__ == "__main__":
             output_dir=f"{output_dir}/size_{size if size else 'full'}",
             num_examples=size,
             learning_rate=1e-5,
-            gradient_accumulation_steps=8,
+            gradient_accumulation_steps=4,
             num_epochs=4
         )
     
@@ -218,7 +218,7 @@ if __name__ == "__main__":
         eval_data_path=eval_data_path,
         output_dir=f"{output_dir}/filtered",
         learning_rate=1e-5,
-        gradient_accumulation_steps=8,
+        gradient_accumulation_steps=4,
         num_epochs=4
     )
 
