@@ -104,6 +104,7 @@ def train_sft(
     
     train_step = 0
     eval_step = 0
+    total_steps = len(train_dataset) * num_epochs
     optimizer.zero_grad()
     
     temp_checkpoint_dir = Path(output_dir) / "temp_checkpoints"
@@ -134,10 +135,11 @@ def train_sft(
                 optimizer.step()
                 optimizer.zero_grad()
             
-            print(f"Train Step {train_step} Loss: {loss.item() * gradient_accumulation_steps}")
+            print(f"Train Step {train_step}/{total_steps} Loss: {loss.item() * gradient_accumulation_steps}")
             wandb.log({
                 "train/loss": loss.item() * gradient_accumulation_steps,
-                "train_step": train_step
+                "train_step": train_step,
+                "train/progress": train_step / total_steps
             })
             
             if (train_step + 1) % eval_every == 0:
