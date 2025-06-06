@@ -149,12 +149,14 @@ def train_sft(
             
             if (train_step + 1) % eval_every == 0:
                 torch.cuda.empty_cache()
+                import gc
+                gc.collect()
 
                 checkpoint_path = temp_checkpoint_dir / f"checkpoint_{train_step}"
                 model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
 
-                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.2)
+                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.1)
                 accuracy = run_evaluation(eval_subset, vllm_model)
                 print(f"Eval Step {eval_step} Accuracy (subset): {accuracy:.2%}")
                 wandb.log({
@@ -162,6 +164,10 @@ def train_sft(
                     "eval_step": eval_step
                 })
                 eval_step += 1
+
+                del vllm_model
+                torch.cuda.empty_cache()
+                gc.collect()
 
                 if checkpoint_path.exists():
                     shutil.rmtree(checkpoint_path)
