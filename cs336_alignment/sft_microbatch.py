@@ -15,4 +15,5 @@ def sft_microbatch_train_step(
         "raw_loss": (-masked_log_probs.sum() / normalize_constant).detach(),
         "num_response_tokens": response_mask.sum().detach(),
     }
+
     return total_loss, metadata
