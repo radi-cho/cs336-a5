@@ -31,9 +31,7 @@ if __name__ == "__main__":
 
     prompts_solns = []
     for example in tqdm(data):
-        print(example.keys())
-        raise
-        prompt = tmpl.replace("{question}", example["question"])
+        prompt = tmpl.replace("{question}", example["problem"])
         prompts_solns.append((prompt, example["answer"]))
 
     llm = LLM(model="/data/a5-alignment/models/Qwen2.5-Math-1.5B")
