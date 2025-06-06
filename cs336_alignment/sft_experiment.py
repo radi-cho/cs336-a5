@@ -141,25 +141,22 @@ def train_sft(
             })
             
             if (train_step + 1) % eval_every == 0:
-                del input_ids, attention_mask, labels, outputs, loss, encodings
-                model.cpu()
                 torch.cuda.empty_cache()
 
                 checkpoint_path = temp_checkpoint_dir / f"checkpoint_{train_step}"
                 model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
 
-                vllm_model = LLM(model=str(checkpoint_path))
+                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.2)
                 accuracy = run_evaluation(eval_data, vllm_model)
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
                 })
                 eval_step += 1
-                
+
                 shutil.rmtree(checkpoint_path)
-                model.to(device)
-            
+
             train_step += 1
     
     output_path = Path(output_dir)
