@@ -18,10 +18,12 @@ class MATHDataset(Dataset):
             for line in f:
                 example = json.loads(line)
                 prompt = self.prompt_template.replace("{question}", example["problem"])
+                response = example["answer"]
+
                 self.examples.append({
                     "prompt": prompt,
-                    "response": example["answer"],
-                    "ground_truth": example["answer"]
+                    "response": response,
+                    "ground_truth": response
                 })
                 if max_examples and len(self.examples) >= max_examples:
                     break
@@ -178,7 +180,7 @@ if __name__ == "__main__":
     with open(train_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
-            if example["answer"]:
+            if "answer" in example and example["answer"]:
                 filtered_examples.append(example)
     
     filtered_data_path = f"{output_dir}/filtered_sft.jsonl"
