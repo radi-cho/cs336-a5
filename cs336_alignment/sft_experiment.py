@@ -156,7 +156,7 @@ def train_sft(
                 model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
 
-                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.1)
+                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.05)
                 accuracy = run_evaluation(eval_subset, vllm_model)
                 print(f"Eval Step {eval_step} Accuracy (subset): {accuracy:.2%}")
                 wandb.log({
@@ -200,7 +200,7 @@ if __name__ == "__main__":
     output_dir = "sft_outputs"
 
     # dataset_sizes = [128, 256, 512, 1024, None]
-    dataset_sizes = [512, 1024, None]
+    dataset_sizes = [None]
     for size in dataset_sizes:
         size_output_dir = f"{output_dir}/size_{size if size else 'full'}"
         train_sft(
@@ -212,7 +212,7 @@ if __name__ == "__main__":
             learning_rate=1e-5,
             gradient_accumulation_steps=8,
             num_epochs=4,
-            eval_every=512 if size and size >= 1024 else 64,
+            eval_every=768 if size and size >= 1024 else 64,
             eval_subset_size=100
         )
 
