@@ -49,6 +49,39 @@ def clear_memory():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
+def run_evaluation(eval_data, model_id):
+    clear_memory()
+    vllm_model = LLM(model=model_id)
+    eval_sampling_params = SamplingParams(
+        temperature=0.0,
+        top_p=1.0,
+        max_tokens=512,
+        stop=["</answer>"]
+    )
+    eval_sampling_params.include_stop_str_in_output = True
+    
+    prompt_template = load_prompt_template()
+    prompts_solns = []
+    for example in eval_data:
+        prompt = prompt_template.replace("{question}", example["problem"])
+        prompts_solns.append((prompt, example["answer"]))
+    
+    eval_results = evaluate_vllm(vllm_model, r1_zero_reward_fn, prompts_solns, eval_sampling_params)
+    
+    correct = sum(1 for r in eval_results if r["score"]["reward"] == 1.0)
+    accuracy = correct / len(eval_results) if eval_results else 0.0
+    
+    print("\nEvaluation Summary:")
+    print(f"Total examples: {len(eval_results)}")
+    print(f"Correct answers: {correct}")
+    print(f"Accuracy: {accuracy:.2%}")
+    
+    # Clear vLLM model from memory
+    del vllm_model
+    clear_memory()
+    
+    return accuracy
+
 def train_sft(
     model_id: str,
     train_data_path: str,
@@ -87,15 +120,6 @@ def train_sft(
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
-    
-    vllm_model = LLM(model=model_id)
-    eval_sampling_params = SamplingParams(
-        temperature=0.0,
-        top_p=1.0,
-        max_tokens=512,
-        stop=["</answer>"]
-    )
-    eval_sampling_params.include_stop_str_in_output = True
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
@@ -168,29 +192,12 @@ def train_sft(
             })
             
             if (train_step + 1) % eval_every == 0:
-                clear_memory()
-                prompt_template = load_prompt_template()
-                prompts_solns = []
-                for example in eval_data:
-                    prompt = prompt_template.replace("{question}", example["problem"])
-                    prompts_solns.append((prompt, example["answer"]))
-                
-                eval_results = evaluate_vllm(vllm_model, r1_zero_reward_fn, prompts_solns, eval_sampling_params)
-                
-                correct = sum(1 for r in eval_results if r["score"]["reward"] == 1.0)
-                accuracy = correct / len(eval_results) if eval_results else 0.0
-                
-                print("\nEvaluation Summary:")
-                print(f"Total examples: {len(eval_results)}")
-                print(f"Correct answers: {correct}")
-                print(f"Accuracy: {accuracy:.2%}")
-                
+                accuracy = run_evaluation(eval_data, model_id)
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
                 })
                 eval_step += 1
-                clear_memory()
             
             train_step += 1
     
