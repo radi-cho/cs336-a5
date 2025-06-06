@@ -154,7 +154,7 @@ def train_sft(
             if (train_step + 1) % eval_every == 0:
                 model.cpu()
                 checkpoint_path = temp_checkpoint_dir / f"checkpoint_{train_step}"
-                model.to(dtype=torch.float16).save_pretrained(checkpoint_path)
+                model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
 
                 vllm_model = LLM(model=str(checkpoint_path))
