@@ -5,13 +5,6 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from vllm import LLM
-
-
-def load_policy_into_vllm_instance(policy: torch.nn.Module, llm: LLM):
-    state_dict = policy.state_dict()
-    llm_model = llm.llm_engine.model_executor.driver_worker.model_runner.model
-    llm_model.load_weights(state_dict.items())
 
 class MATHDataset(Dataset):
     def __init__(self, data_path: str, max_examples: Optional[int] = None):
@@ -25,10 +18,10 @@ class MATHDataset(Dataset):
                 })
                 if max_examples and len(self.examples) >= max_examples:
                     break
-
+    
     def __len__(self):
         return len(self.examples)
-
+    
     def __getitem__(self, idx):
         return self.examples[idx]
 
@@ -37,24 +30,37 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
-def evaluate_model(model: LLM, eval_data: List[Dict], batch_size: int = 8) -> float:
+def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: List[Dict], device: str, batch_size: int = 8) -> float:
+    model.eval()
     correct = 0
     total = 0
-    
+
     for i in range(0, len(eval_data), batch_size):
         batch = eval_data[i:i + batch_size]
         prompts = [example["prompt"] for example in batch]
-        responses = model.generate(prompts, max_tokens=512)
+
+        # Generate responses
+        inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=512,
+                pad_token_id=tokenizer.eos_token_id
+            )
+
+        # Decode responses
+        responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
+        # Compare with ground truth
         for response, example in zip(responses, batch):
-            response_text = response.outputs[0].text
-            if "Answer:" in response_text:
-                pred_answer = response_text.split("Answer:")[-1].strip()
+            if "Answer:" in response:
+                pred_answer = response.split("Answer:")[-1].strip()
                 true_answer = example["response"].split("Answer:")[-1].strip()
                 if pred_answer == true_answer:
                     correct += 1
             total += 1
     
+    model.train()
     return correct / total if total > 0 else 0.0
 
 def train_sft(
@@ -78,13 +84,13 @@ def train_sft(
     train_dataset = MATHDataset(train_data_path, max_examples=num_examples)
     with open(eval_data_path, "r") as f:
         eval_data = [json.loads(line) for line in f]
-
+    
     device = "cuda:0"
-    policy = AutoModelForCausalLM.from_pretrained(model_id).to(device)
+    model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     
-    optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
         train_dataset, 
         batch_size=batch_size, 
@@ -96,12 +102,12 @@ def train_sft(
     eval_step = 0
     
     for _ in range(num_epochs):
-        policy.train()
+        model.train()
         for batch in train_dataloader:
             prompts = batch["prompt"]
             responses = batch["response"]
             combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
-
+            
             encodings = tokenizer(
                 combined_texts,
                 padding=True,
@@ -111,38 +117,34 @@ def train_sft(
             ).to(device)
 
             labels = encodings.input_ids.clone()
-
             labels[labels == tokenizer.pad_token_id] = -100
-            
-            outputs = policy(**encodings, labels=labels)
+
+            outputs = model(**encodings, labels=labels)
             loss = outputs.loss
             loss.backward()
-            
-            torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             optimizer.zero_grad()
-            
+
             wandb.log({
                 "train/loss": loss.item(),
                 "train_step": train_step
             })
             
             if train_step % eval_every == 0:
-                policy.eval()
-                load_policy_into_vllm_instance(policy, llm)
-                accuracy = evaluate_model(llm, eval_data)
+                accuracy = evaluate_model(model, tokenizer, eval_data, device)
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
                 })
                 eval_step += 1
-                policy.train()
-
+            
             train_step += 1
-
+    
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    policy.save_pretrained(output_path / "final_model")
+    model.save_pretrained(output_path / "final_model")
     tokenizer.save_pretrained(output_path / "final_model")
 
     wandb.finish()
@@ -165,7 +167,7 @@ if __name__ == "__main__":
             batch_size=8,
             num_epochs=4
         )
-
+    
     filtered_examples = []
     with open(train_data_path, "r") as f:
         for line in f:
@@ -175,12 +177,12 @@ if __name__ == "__main__":
                 answer = response.split("Answer:")[-1].strip()
                 if answer:
                     filtered_examples.append(example)
-
+    
     filtered_data_path = f"{output_dir}/filtered_sft.jsonl"
     with open(filtered_data_path, "w") as f:
         for example in filtered_examples:
             f.write(json.dumps(example) + "\n")
-
+    
     train_sft(
         model_id=model_id,
         train_data_path=filtered_data_path,
