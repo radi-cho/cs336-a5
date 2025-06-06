@@ -37,6 +37,7 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
 
     for i in range(0, len(eval_data), batch_size):
         batch = eval_data[i:i + batch_size]
+        print(batch[0])
         prompts = [example["prompt"] for example in batch]
 
         # Generate responses
