@@ -156,7 +156,7 @@ def train_sft(
                 model.save_pretrained(checkpoint_path)
                 tokenizer.save_pretrained(checkpoint_path)
 
-                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.05)
+                vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.08)
                 accuracy = run_evaluation(eval_subset, vllm_model)
                 print(f"Eval Step {eval_step} Accuracy (subset): {accuracy:.2%}")
                 wandb.log({
