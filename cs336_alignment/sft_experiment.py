@@ -75,11 +75,16 @@ def train_sft(
     learning_rate: float = 1e-5,
     gradient_accumulation_steps: int = 8,
     num_epochs: int = 3,
-    eval_every: int = 100,
+    eval_every: int = 128,
     eval_subset_size: int = 100,
 ):
     wandb.init(project="cs336-a5", entity="radi-cho")
     
+    temp_checkpoint_dir = Path(output_dir) / "temp_checkpoints"
+    if temp_checkpoint_dir.exists():
+        shutil.rmtree(temp_checkpoint_dir)
+    temp_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     wandb.define_metric("train_step")
     wandb.define_metric("eval_step")
     wandb.define_metric("train/*", step_metric="train_step")
@@ -109,9 +114,6 @@ def train_sft(
     eval_step = 0
     total_steps = len(train_dataset) * num_epochs
     optimizer.zero_grad()
-    
-    temp_checkpoint_dir = Path(output_dir) / "temp_checkpoints"
-    temp_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     for _ in range(num_epochs):
         model.train()
@@ -161,7 +163,8 @@ def train_sft(
                 })
                 eval_step += 1
 
-                shutil.rmtree(checkpoint_path)
+                if checkpoint_path.exists():
+                    shutil.rmtree(checkpoint_path)
 
             train_step += 1
 
@@ -179,7 +182,8 @@ def train_sft(
         "eval_step": eval_step
     })
 
-    shutil.rmtree(temp_checkpoint_dir)
+    if temp_checkpoint_dir.exists():
+        shutil.rmtree(temp_checkpoint_dir)
 
     wandb.finish()
 
