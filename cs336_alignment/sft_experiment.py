@@ -13,9 +13,10 @@ class MATHDataset(Dataset):
             for line in f:
                 example = json.loads(line)
                 self.examples.append({
-                    "prompt": example["prompt"],
-                    "response": example["response"]
+                    "problem": example["problem"],
+                    "answer": example["answer"]
                 })
+
                 if max_examples and len(self.examples) >= max_examples:
                     break
     
@@ -26,29 +27,28 @@ class MATHDataset(Dataset):
         return self.examples[idx]
 
 def collate_fn(batch):
-    prompts = [item["prompt"] for item in batch]
-    responses = [item["response"] for item in batch]
-    return {"prompt": prompts, "response": responses}
+    problems = [item["problem"] for item in batch]
+    answers = [item["answer"] for item in batch]
+    return {"problem": problems, "answer": answers}
 
 def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: List[Dict], device: str, batch_size: int = 8) -> float:
     model.eval()
     correct = 0
     total = 0
-
+    
     for i in range(0, len(eval_data), batch_size):
         batch = eval_data[i:i + batch_size]
-        print(batch[0])
-        prompts = [example["prompt"] for example in batch]
-
+        problems = [example["problem"] for example in batch]
+        
         # Generate responses
-        inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
+        inputs = tokenizer(problems, padding=True, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=512,
                 pad_token_id=tokenizer.eos_token_id
             )
-
+        
         # Decode responses
         responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
@@ -56,7 +56,7 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
         for response, example in zip(responses, batch):
             if "Answer:" in response:
                 pred_answer = response.split("Answer:")[-1].strip()
-                true_answer = example["response"].split("Answer:")[-1].strip()
+                true_answer = example["answer"]
                 if pred_answer == true_answer:
                     correct += 1
             total += 1
@@ -105,9 +105,9 @@ def train_sft(
     for _ in range(num_epochs):
         model.train()
         for batch in train_dataloader:
-            prompts = batch["prompt"]
-            responses = batch["response"]
-            combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
+            problems = batch["problem"]
+            answers = batch["answer"]
+            combined_texts = [f"Problem: {p}\nAnswer: {a}" for p, a in zip(problems, answers)]
             
             encodings = tokenizer(
                 combined_texts,
@@ -116,18 +116,18 @@ def train_sft(
                 max_length=512,
                 return_tensors="pt"
             ).to(device)
-
+            
             labels = encodings.input_ids.clone()
             labels[labels == tokenizer.pad_token_id] = -100
-
+            
             outputs = model(**encodings, labels=labels)
             loss = outputs.loss
             loss.backward()
-
+            
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             optimizer.zero_grad()
-
+            
             wandb.log({
                 "train/loss": loss.item(),
                 "train_step": train_step
@@ -147,7 +147,7 @@ def train_sft(
     output_path.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_path / "final_model")
     tokenizer.save_pretrained(output_path / "final_model")
-
+    
     wandb.finish()
 
 if __name__ == "__main__":
@@ -173,11 +173,8 @@ if __name__ == "__main__":
     with open(train_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
-            response = example["response"]
-            if "Answer:" in response:
-                answer = response.split("Answer:")[-1].strip()
-                if answer:
-                    filtered_examples.append(example)
+            if example["answer"]:
+                filtered_examples.append(example)
     
     filtered_data_path = f"{output_dir}/filtered_sft.jsonl"
     with open(filtered_data_path, "w") as f:
