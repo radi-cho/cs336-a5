@@ -12,8 +12,12 @@ def sft_microbatch_train_step(
     total_log_prob = masked_log_probs.sum()
     total_response_tokens = response_mask.sum()
 
+    # (1) compute per‐token average negative log‐prob for metadata
     safe_token_count = total_response_tokens.clamp(min=1.0)
     avg_neg_log_prob = -total_log_prob / safe_token_count
+
+    # (2) use normalize_constant here to scale the total log‐prob,
+    #     then divide by gradient_accumulation_steps
     loss = -total_log_prob / normalize_constant
     loss = loss / gradient_accumulation_steps
     loss.backward()
