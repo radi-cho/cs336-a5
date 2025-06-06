@@ -56,7 +56,7 @@ def train_sft(
     output_dir: str,
     num_examples: Optional[int] = None,
     learning_rate: float = 1e-5,
-    gradient_accumulation_steps: int = 4,
+    gradient_accumulation_steps: int = 8,
     num_epochs: int = 3,
     eval_every: int = 100,
 ):
@@ -80,7 +80,10 @@ def train_sft(
         device_map="auto",
         use_cache=False
     )
-
+    
+    # Enable gradient checkpointing to save memory
+    model.gradient_checkpointing_enable()
+    
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
@@ -115,23 +118,40 @@ def train_sft(
             responses = batch["response"]
             combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
             
+            # Move to CPU after tokenization to save GPU memory
             encodings = tokenizer(
                 combined_texts,
                 padding=True,
                 truncation=True,
                 max_length=512,
                 return_tensors="pt"
-            ).to(device)
+            )
             
-            labels = encodings.input_ids.clone()
+            # Move only necessary tensors to GPU
+            input_ids = encodings.input_ids.to(device)
+            attention_mask = encodings.attention_mask.to(device)
+            
+            labels = input_ids.clone()
             labels[labels == tokenizer.pad_token_id] = -100
             
-            outputs = model(**encodings, labels=labels)
+            # Clear CPU tensors
+            del encodings
+            clear_memory()
+            
+            # Forward pass with gradient checkpointing
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels
+            )
+            
             loss = outputs.loss / gradient_accumulation_steps
             loss.backward()
             
+            # Clear GPU tensors
             del outputs
-            del encodings
+            del input_ids
+            del attention_mask
             del labels
             clear_memory()
             
@@ -196,7 +216,7 @@ if __name__ == "__main__":
             output_dir=f"{output_dir}/size_{size if size else 'full'}",
             num_examples=size,
             learning_rate=1e-5,
-            gradient_accumulation_steps=4,
+            gradient_accumulation_steps=8,
             num_epochs=4
         )
     
@@ -218,7 +238,7 @@ if __name__ == "__main__":
         eval_data_path=eval_data_path,
         output_dir=f"{output_dir}/filtered",
         learning_rate=1e-5,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=8,
         num_epochs=4
     )
 
