@@ -11,9 +11,8 @@ def analyze_math_results(file_path):
             total += 1
             record = json.loads(line)
             score = record.get("score", {})
-            print(score)
-            fmt = score.get("format", 0)
-            ans = score.get("answer", 0)
+            fmt = score.get("format_reward", 0)
+            ans = score.get("answer_reward", 0)
 
             if fmt == 1 and ans == 1:
                 count_format_and_answer_correct += 1
