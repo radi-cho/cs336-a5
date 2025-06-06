@@ -92,6 +92,7 @@ def train_sft(
     model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
