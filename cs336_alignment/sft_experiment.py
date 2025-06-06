@@ -12,12 +12,11 @@ class MATHDataset(Dataset):
         with open(data_path, "r") as f:
             for line in f:
                 example = json.loads(line)
-                print(example)
                 self.examples.append({
-                    "problem": example["problem"],
-                    "answer": example["answer"]
+                    "prompt": example["prompt"],
+                    "response": example["response"],
+                    "ground_truth": example["ground_truth"]
                 })
-
                 if max_examples and len(self.examples) >= max_examples:
                     break
     
@@ -28,9 +27,9 @@ class MATHDataset(Dataset):
         return self.examples[idx]
 
 def collate_fn(batch):
-    problems = [item["problem"] for item in batch]
-    answers = [item["answer"] for item in batch]
-    return {"problem": problems, "answer": answers}
+    prompts = [item["prompt"] for item in batch]
+    responses = [item["response"] for item in batch]
+    return {"prompt": prompts, "response": responses}
 
 def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: List[Dict], device: str, batch_size: int = 8) -> float:
     model.eval()
@@ -39,10 +38,10 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
     
     for i in range(0, len(eval_data), batch_size):
         batch = eval_data[i:i + batch_size]
-        problems = [example["problem"] for example in batch]
+        prompts = [example["prompt"] for example in batch]
         
         # Generate responses
-        inputs = tokenizer(problems, padding=True, return_tensors="pt").to(device)
+        inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
@@ -55,9 +54,9 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
         
         # Compare with ground truth
         for response, example in zip(responses, batch):
-            if "Answer:" in response:
-                pred_answer = response.split("Answer:")[-1].strip()
-                true_answer = example["answer"]
+            if "<answer>" in response:
+                pred_answer = response.split("<answer>")[-1].split("</answer>")[0].strip()
+                true_answer = example["ground_truth"]
                 if pred_answer == true_answer:
                     correct += 1
             total += 1
@@ -106,9 +105,9 @@ def train_sft(
     for _ in range(num_epochs):
         model.train()
         for batch in train_dataloader:
-            problems = batch["problem"]
-            answers = batch["answer"]
-            combined_texts = [f"Problem: {p}\nAnswer: {a}" for p, a in zip(problems, answers)]
+            prompts = batch["prompt"]
+            responses = batch["response"]
+            combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
             
             encodings = tokenizer(
                 combined_texts,
@@ -174,7 +173,7 @@ if __name__ == "__main__":
     with open(train_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
-            if example["answer"]:
+            if example["ground_truth"]:
                 filtered_examples.append(example)
     
     filtered_data_path = f"{output_dir}/filtered_sft.jsonl"
