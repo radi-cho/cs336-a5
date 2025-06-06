@@ -76,7 +76,7 @@ def train_sft(
     gradient_accumulation_steps: int = 8,
     num_epochs: int = 3,
     eval_every: int = 100,
-    eval_subset_size: int = 100,  # Number of examples to use for evaluation during training
+    eval_subset_size: int = 100,
 ):
     wandb.init(project="cs336-a5", entity="radi-cho")
     
@@ -100,7 +100,7 @@ def train_sft(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=8,
+        batch_size=1,
         shuffle=True,
         collate_fn=collate_fn
     )
