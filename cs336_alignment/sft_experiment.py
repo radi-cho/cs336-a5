@@ -146,6 +146,7 @@ def train_sft(
 
                 checkpoint_path = temp_checkpoint_dir / f"checkpoint_{train_step}"
                 model.save_pretrained(checkpoint_path)
+                tokenizer.save_pretrained(checkpoint_path)
 
                 vllm_model = LLM(model=str(checkpoint_path))
                 accuracy = run_evaluation(eval_data, vllm_model)
