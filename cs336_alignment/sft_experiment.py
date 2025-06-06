@@ -193,19 +193,24 @@ if __name__ == "__main__":
     eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
     output_dir = "sft_outputs"
 
-    dataset_sizes = [128, 256, 512, 1024, None]
+    # dataset_sizes = [128, 256, 512, 1024, None]
+    dataset_sizes = [512, 1024, None]
     for size in dataset_sizes:
+        size_output_dir = f"{output_dir}/size_{size if size else 'full'}"
         train_sft(
             model_id=model_id,
             train_data_path=train_data_path,
             eval_data_path=eval_data_path,
-            output_dir=f"{output_dir}/size_{size if size else 'full'}",
+            output_dir=size_output_dir,
             num_examples=size,
             learning_rate=1e-5,
             gradient_accumulation_steps=8,
             num_epochs=4,
             eval_subset_size=100
         )
+
+        if Path(size_output_dir).exists():
+            shutil.rmtree(size_output_dir)
 
     filtered_examples = []
     with open(train_data_path, "r") as f:
