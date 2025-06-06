@@ -2,9 +2,8 @@ import json
 import torch
 import wandb
 import gc
-from tqdm import tqdm
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import Optional
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM, SamplingParams
@@ -81,7 +80,7 @@ def train_sft(
         device_map="auto",
         use_cache=False
     )
-    
+
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
