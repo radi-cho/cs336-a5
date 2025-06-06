@@ -51,12 +51,7 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
         
         inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
         with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=512,
-                pad_token_id=tokenizer.eos_token_id,
-                stop_token_ids=[tokenizer.eos_token_id]
-            )
+            outputs = model.generate(**inputs, max_new_tokens=512, pad_token_id=tokenizer.eos_token_id)
         
         responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
