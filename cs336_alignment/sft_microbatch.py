@@ -54,7 +54,7 @@ def sft_microbatch_train_step(
     #    Loss = – total_log_prob / normalize_constant
     #    Then divide by gradient_accumulation_steps so that 
     #    during gradient accumulation, you get the correct scale.
-    loss = -total_log_prob / normalize_constant
+    loss = -total_log_prob / (normalize_constant * total_response_tokens.clamp(min=1.0))
     loss = loss / gradient_accumulation_steps
 
     # 6) Backpropagate on this microbatch:
