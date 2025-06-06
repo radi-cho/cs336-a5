@@ -29,7 +29,7 @@ def tokenize_prompt_and_output(
     batch_labels = []
     batch_masks = []
 
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    pad_token_id = 0
 
     for prompt, output in zip(prompt_strs, output_strs):
         # Tokenize prompt and output separately (no special tokens)
