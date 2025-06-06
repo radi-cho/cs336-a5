@@ -76,6 +76,7 @@ def train_sft(
     gradient_accumulation_steps: int = 8,
     num_epochs: int = 3,
     eval_every: int = 100,
+    eval_subset_size: int = 100,  # Number of examples to use for evaluation during training
 ):
     wandb.init(project="cs336-a5", entity="radi-cho")
     
@@ -88,6 +89,8 @@ def train_sft(
     with open(eval_data_path, "r") as f:
         eval_data = [json.loads(line) for line in f]
     
+    eval_subset = eval_data[:eval_subset_size]
+    
     device = "cuda:0"
     model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -97,7 +100,7 @@ def train_sft(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=1,
+        batch_size=8,
         shuffle=True,
         collate_fn=collate_fn
     )
@@ -150,8 +153,8 @@ def train_sft(
                 tokenizer.save_pretrained(checkpoint_path)
 
                 vllm_model = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.2)
-                accuracy = run_evaluation(eval_data, vllm_model)
-                print(f"Eval Step {eval_step} Accuracy: {accuracy:.2%}")
+                accuracy = run_evaluation(eval_subset, vllm_model)
+                print(f"Eval Step {eval_step} Accuracy (subset): {accuracy:.2%}")
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
@@ -166,6 +169,15 @@ def train_sft(
     output_path.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_path / "final_model")
     tokenizer.save_pretrained(output_path / "final_model")
+    
+    print("\nRunning final evaluation on full dataset...")
+    vllm_model = LLM(model=str(output_path / "final_model"), gpu_memory_utilization=0.2)
+    final_accuracy = run_evaluation(eval_data, vllm_model)
+    print(f"Final Accuracy (full dataset): {final_accuracy:.2%}")
+    wandb.log({
+        "eval/final_accuracy": final_accuracy,
+        "eval_step": eval_step
+    })
     
     shutil.rmtree(temp_checkpoint_dir)
     
@@ -187,7 +199,8 @@ if __name__ == "__main__":
             num_examples=size,
             learning_rate=1e-5,
             gradient_accumulation_steps=8,
-            num_epochs=4
+            num_epochs=4,
+            eval_subset_size=100
         )
     
     filtered_examples = []
@@ -209,5 +222,6 @@ if __name__ == "__main__":
         output_dir=f"{output_dir}/filtered",
         learning_rate=1e-5,
         gradient_accumulation_steps=8,
-        num_epochs=4
+        num_epochs=4,
+        eval_subset_size=100
     )
