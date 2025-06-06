@@ -34,9 +34,8 @@ def tokenize_prompt_and_output(
     for prompt, output in zip(prompt_strs, output_strs):
         # Tokenize prompt and output separately (no special tokens)
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        output_ids = tokenizer(output, add_special_tokens=False)["input_ids"]
-        output_ids.append(tokenizer.eos_token_id)
-
+        output_ids_no_eos = tokenizer(output, add_special_tokens=False)["input_ids"]
+        output_ids = output_ids_no_eos + [tokenizer.eos_token_id]
 
         # Concatenate prompt + output
         full_ids = prompt_ids + output_ids
@@ -45,13 +44,10 @@ def tokenize_prompt_and_output(
         input_ids_i = full_ids[:-1]
         labels_i = full_ids[1:]
 
-        # Create a boolean mask of length = seq_len indicating response tokens
-        # (output positions are True for full_ids indices >= prompt_len)
+        # Correct mask construction
         prompt_len = len(prompt_ids)
-        output_len = len(output_ids)
-        # mask_full has length seq_len
+        output_len = len(output_ids)  # including EOS
         mask_full = [False] * prompt_len + [True] * output_len
-        # labels_mask = mask_full shifted by one (drop first position)
         labels_mask = mask_full[1:]
 
         batch_input_ids.append(torch.tensor(input_ids_i, dtype=torch.long))
