@@ -35,10 +35,11 @@ def tokenize_prompt_and_output(
         # Tokenize prompt and output separately (no special tokens)
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
         output_ids = tokenizer(output, add_special_tokens=False)["input_ids"]
+        output_ids.append(tokenizer.eos_token_id)
+
 
         # Concatenate prompt + output
         full_ids = prompt_ids + output_ids
-        seq_len = len(full_ids)
 
         # Build input_ids (drop last token) and labels (drop first token)
         input_ids_i = full_ids[:-1]
