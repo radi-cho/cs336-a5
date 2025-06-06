@@ -6,16 +6,22 @@ from typing import List, Dict, Optional
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+def load_prompt_template():
+    with open("cs336_alignment/prompts/r1_zero.prompt") as f:
+        return f.read()
+
 class MATHDataset(Dataset):
     def __init__(self, data_path: str, max_examples: Optional[int] = None):
         self.examples = []
+        self.prompt_template = load_prompt_template()
         with open(data_path, "r") as f:
             for line in f:
                 example = json.loads(line)
+                prompt = self.prompt_template.replace("{question}", example["problem"])
                 self.examples.append({
-                    "prompt": example["prompt"],
-                    "response": example["response"],
-                    "ground_truth": example["ground_truth"]
+                    "prompt": prompt,
+                    "response": example["answer"],
+                    "ground_truth": example["answer"]
                 })
                 if max_examples and len(self.examples) >= max_examples:
                     break
@@ -35,29 +41,27 @@ def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: 
     model.eval()
     correct = 0
     total = 0
+    prompt_template = load_prompt_template()
     
     for i in range(0, len(eval_data), batch_size):
         batch = eval_data[i:i + batch_size]
-        print(batch[0])
-        prompts = [example["prompt"] for example in batch]
+        prompts = [prompt_template.replace("{question}", example["problem"]) for example in batch]
         
-        # Generate responses
         inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=512,
-                pad_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.eos_token_id,
+                stop_token_ids=[tokenizer.eos_token_id]
             )
         
-        # Decode responses
         responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
-        # Compare with ground truth
         for response, example in zip(responses, batch):
             if "<answer>" in response:
                 pred_answer = response.split("<answer>")[-1].split("</answer>")[0].strip()
-                true_answer = example["ground_truth"]
+                true_answer = example["answer"]
                 if pred_answer == true_answer:
                     correct += 1
             total += 1
@@ -174,7 +178,7 @@ if __name__ == "__main__":
     with open(train_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
-            if example["ground_truth"]:
+            if example["answer"]:
                 filtered_examples.append(example)
     
     filtered_data_path = f"{output_dir}/filtered_sft.jsonl"
