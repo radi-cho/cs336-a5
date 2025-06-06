@@ -32,6 +32,11 @@ class MATHDataset(Dataset):
     def __getitem__(self, idx):
         return self.examples[idx]
 
+def collate_fn(batch):
+    prompts = [item["prompt"] for item in batch]
+    responses = [item["response"] for item in batch]
+    return {"prompt": prompts, "response": responses}
+
 def evaluate_model(model: LLM, eval_data: List[Dict], batch_size: int = 8) -> float:
     correct = 0
     total = 0
@@ -79,7 +84,12 @@ def train_sft(
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     
     optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, 
+        shuffle=True,
+        collate_fn=collate_fn
+    )
     
     train_step = 0
     eval_step = 0
@@ -87,8 +97,8 @@ def train_sft(
     for _ in range(num_epochs):
         policy.train()
         for batch in train_dataloader:
-            prompts = [example["prompt"] for example in batch]
-            responses = [example["response"] for example in batch]
+            prompts = batch["prompt"]
+            responses = batch["response"]
             
             inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
             labels = tokenizer(responses, padding=True, return_tensors="pt").to(device)
