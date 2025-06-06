@@ -7,13 +7,12 @@ def sft_microbatch_train_step(
     gradient_accumulation_steps: int,
     normalize_constant: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    batch_size = policy_log_probs.shape[0]
     masked_log_probs = policy_log_probs * response_mask
-    summed_loss = -masked_log_probs.sum() / normalize_constant
-    scaled_loss = summed_loss / gradient_accumulation_steps
-    scaled_loss.backward()
+    total_loss = -masked_log_probs.sum() / (normalize_constant * gradient_accumulation_steps * batch_size)
+    total_loss.backward()
     metadata = {
-        "raw_loss": summed_loss.detach(),
+        "raw_loss": (-masked_log_probs.sum() / normalize_constant).detach(),
         "num_response_tokens": response_mask.sum().detach(),
     }
-
-    return scaled_loss, metadata
+    return total_loss, metadata
