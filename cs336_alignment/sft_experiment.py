@@ -50,7 +50,7 @@ def train_sft(
     output_dir: str,
     num_examples: Optional[int] = None,
     learning_rate: float = 1e-5,
-    batch_size: int = 8,
+    batch_size: int = 4,
     num_epochs: int = 3,
     eval_every: int = 100,
 ):
@@ -66,7 +66,15 @@ def train_sft(
         eval_data = [json.loads(line) for line in f]
     
     device = "cuda:0"
-    model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
+    
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16,
+        device_map="auto",
+        use_cache=False
+    )
+    model.gradient_checkpointing_enable()
+    
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
@@ -109,6 +117,8 @@ def train_sft(
             labels = encodings.input_ids.clone()
             labels[labels == tokenizer.pad_token_id] = -100
             
+            torch.cuda.empty_cache()
+            
             outputs = model(**encodings, labels=labels)
             loss = outputs.loss
             loss.backward()
@@ -124,21 +134,17 @@ def train_sft(
             })
             
             if train_step % eval_every == 0:
-                # Prepare evaluation data
                 prompt_template = load_prompt_template()
                 prompts_solns = []
                 for example in eval_data:
                     prompt = prompt_template.replace("{question}", example["problem"])
                     prompts_solns.append((prompt, example["answer"]))
                 
-                # Run evaluation using vLLM
                 eval_results = evaluate_vllm(vllm_model, r1_zero_reward_fn, prompts_solns, eval_sampling_params)
                 
-                # Calculate accuracy
                 correct = sum(1 for r in eval_results if r["score"]["reward"] == 1.0)
                 accuracy = correct / len(eval_results) if eval_results else 0.0
                 
-                # Print evaluation summary
                 print("\nEvaluation Summary:")
                 print(f"Total examples: {len(eval_results)}")
                 print(f"Correct answers: {correct}")
@@ -174,7 +180,7 @@ if __name__ == "__main__":
             output_dir=f"{output_dir}/size_{size if size else 'full'}",
             num_examples=size,
             learning_rate=1e-5,
-            batch_size=8,
+            batch_size=4,
             num_epochs=4
         )
     
@@ -196,7 +202,7 @@ if __name__ == "__main__":
         eval_data_path=eval_data_path,
         output_dir=f"{output_dir}/filtered",
         learning_rate=1e-5,
-        batch_size=8,
+        batch_size=4,
         num_epochs=4
     )
 
