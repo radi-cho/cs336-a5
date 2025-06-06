@@ -82,6 +82,7 @@ def train_sft(
     device = "cuda:0"
     policy = AutoModelForCausalLM.from_pretrained(model_id).to(device)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
     
     optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
@@ -99,11 +100,21 @@ def train_sft(
         for batch in train_dataloader:
             prompts = batch["prompt"]
             responses = batch["response"]
+            combined_texts = [f"{p}{r}" for p, r in zip(prompts, responses)]
+
+            encodings = tokenizer(
+                combined_texts,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt"
+            ).to(device)
+
+            labels = encodings.input_ids.clone()
+
+            labels[labels == tokenizer.pad_token_id] = -100
             
-            inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
-            labels = tokenizer(responses, padding=True, return_tensors="pt").to(device)
-            
-            outputs = policy(**inputs, labels=labels.input_ids)
+            outputs = policy(**encodings, labels=labels)
             loss = outputs.loss
             loss.backward()
             
