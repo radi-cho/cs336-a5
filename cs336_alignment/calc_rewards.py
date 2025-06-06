@@ -11,6 +11,7 @@ def analyze_math_results(file_path):
             total += 1
             record = json.loads(line)
             score = record.get("score", {})
+            print(score)
             fmt = score.get("format", 0)
             ans = score.get("answer", 0)
 
