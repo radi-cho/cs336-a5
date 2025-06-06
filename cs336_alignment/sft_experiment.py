@@ -17,9 +17,8 @@ class MATHDataset(Dataset):
         with open(data_path, "r") as f:
             for line in f:
                 example = json.loads(line)
-                print(example)
-                prompt = self.prompt_template.replace("{question}", example["problem"])
-                response = example["answer"]
+                prompt = example["prompt"]
+                response = example["response"]
 
                 self.examples.append({
                     "prompt": prompt,
