@@ -2,7 +2,6 @@ import json
 import torch
 import wandb
 import random
-import math
 import shutil
 from pathlib import Path
 from typing import List, Dict
