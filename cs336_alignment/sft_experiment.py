@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from vllm import LLM, SamplingParams
+from cs336_alignment.evaluate_vllm import evaluate_vllm
+from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 
 def load_prompt_template():
     with open("cs336_alignment/prompts/r1_zero.prompt") as f:
@@ -40,61 +43,6 @@ def collate_fn(batch):
     responses = [item["response"] for item in batch]
     return {"prompt": prompts, "response": responses}
 
-def evaluate_model(model: torch.nn.Module, tokenizer: AutoTokenizer, eval_data: List[Dict], device: str, batch_size: int = 8) -> List[Dict]:
-    model.eval()
-    prompt_template = load_prompt_template()
-    
-    # Prepare prompts and solutions
-    prompts_solns = []
-    for example in eval_data:
-        prompt = prompt_template.replace("{question}", example["problem"])
-        prompts_solns.append((prompt, example["answer"]))
-    
-    results = []
-    for i in tqdm(range(0, len(prompts_solns), batch_size)):
-        batch_prompts_solns = prompts_solns[i:i + batch_size]
-        prompts = [p for p, _ in batch_prompts_solns]
-        
-        # Generate responses
-        inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=512,
-                pad_token_id=tokenizer.eos_token_id,
-                do_sample=False  # Use greedy decoding for evaluation
-            )
-        
-        # Process results
-        responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        for (prompt, solution), response in zip(batch_prompts_solns, responses):
-            if "<answer>" in response:
-                pred_answer = response.split("<answer>")[-1].split("</answer>")[0].strip()
-                score = 1.0 if pred_answer == solution else 0.0
-            else:
-                pred_answer = ""
-                score = 0.0
-            
-            results.append({
-                "prompt": prompt,
-                "solution": solution,
-                "pred": response,
-                "score": score
-            })
-    
-    # Calculate accuracy
-    correct = sum(1 for r in results if r["score"] == 1.0)
-    accuracy = correct / len(results) if results else 0.0
-    
-    # Print evaluation summary
-    print("\nEvaluation Summary:")
-    print(f"Total examples: {len(results)}")
-    print(f"Correct answers: {correct}")
-    print(f"Accuracy: {accuracy:.2%}")
-    
-    model.train()
-    return results
-
 def train_sft(
     model_id: str,
     train_data_path: str,
@@ -122,6 +70,15 @@ def train_sft(
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
+    
+    vllm_model = LLM(model=model_id)
+    eval_sampling_params = SamplingParams(
+        temperature=0.0,
+        top_p=1.0,
+        max_tokens=512,
+        stop=["</answer>"]
+    )
+    eval_sampling_params.include_stop_str_in_output = True
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     train_dataloader = DataLoader(
@@ -167,8 +124,26 @@ def train_sft(
             })
             
             if train_step % eval_every == 0:
-                eval_results = evaluate_model(model, tokenizer, eval_data, device)
-                accuracy = sum(1 for r in eval_results if r["score"] == 1.0) / len(eval_results)
+                # Prepare evaluation data
+                prompt_template = load_prompt_template()
+                prompts_solns = []
+                for example in eval_data:
+                    prompt = prompt_template.replace("{question}", example["problem"])
+                    prompts_solns.append((prompt, example["answer"]))
+                
+                # Run evaluation using vLLM
+                eval_results = evaluate_vllm(vllm_model, r1_zero_reward_fn, prompts_solns, eval_sampling_params)
+                
+                # Calculate accuracy
+                correct = sum(1 for r in eval_results if r["score"]["reward"] == 1.0)
+                accuracy = correct / len(eval_results) if eval_results else 0.0
+                
+                # Print evaluation summary
+                print("\nEvaluation Summary:")
+                print(f"Total examples: {len(eval_results)}")
+                print(f"Correct answers: {correct}")
+                print(f"Accuracy: {accuracy:.2%}")
+                
                 wandb.log({
                     "eval/accuracy": accuracy,
                     "eval_step": eval_step
