@@ -333,7 +333,7 @@ if __name__ == "__main__":
     sampling_min_tokens = 4
     sampling_max_tokens = 1024
     epochs_per_rollout_batch = 1
-    train_batch_size = 128
+    train_batch_size = 256
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
