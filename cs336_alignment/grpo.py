@@ -5,6 +5,7 @@ from unittest.mock import patch
 from transformers import PreTrainedModel
 import wandb
 import random
+import gc
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
