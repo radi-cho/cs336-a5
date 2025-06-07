@@ -8,9 +8,6 @@ def compute_group_normalized_rewards(
     advantage_eps: float,
     normalize_by_std: bool,
 ):
-    print(rollout_responses)
-    print(repeated_ground_truths)
-    raise
     batch_size = len(rollout_responses)
 
     raw_reward_list = [reward_fn(resp, gt)["reward"] for resp, gt in zip(rollout_responses, repeated_ground_truths)]

@@ -35,8 +35,10 @@ def grpo_train_loop(
     tokenizer,
     train_questions: List[str],
     validation_questions: List[str],
+    train_answers: List[str],
+    validation_answers: List[str],
     r1_zero_prompt: Callable[[str], str],
-    r1_zero_reward_fn: Callable[[str, str], Dict[str, float]],
+    r1_zero_reward_fn: Callable[[str, str, str], Dict[str, float]],
     n_grpo_steps: int,
     rollout_batch_size: int,
     group_size: int,
@@ -83,25 +85,26 @@ def grpo_train_loop(
             outputs.extend([r.outputs[0].text for r in results])
         return outputs
 
-    def compute_validation_reward(model, prompts: List[str], reward_fn: Callable[[str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
+    def compute_validation_reward(model, prompts: List[str], answers: List[str], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
         load_policy_into_vllm_instance(model, llm)
         formatted = [prompt_template(q) for q in prompts]
         with torch.inference_mode():
             preds = sample_rollouts(formatted, llm)
         total = 0.0
-        for q, o in zip(prompts, preds):
-            total += reward_fn(o, q)["answer_reward"]
+        for q, o, s in zip(prompts, preds, answers):
+            total += reward_fn(o, q, s)["answer_reward"]
         return total / len(prompts)
 
     for step in range(1, n_grpo_steps + 1):
         load_policy_into_vllm_instance(policy, llm)
 
         rollout_prompts = train_questions[:rollout_batch_size]
+        rollout_answers = train_answers[:rollout_batch_size]
         formatted_prompts = [r1_zero_prompt(q) for q in rollout_prompts]
         with torch.inference_mode():
             rollout_outputs = sample_rollouts(formatted_prompts, llm)
 
-        repeated_ground_truths = [q for q in rollout_prompts for _ in range(group_size)]
+        repeated_ground_truths = [s for s in rollout_answers for _ in range(group_size)]
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
             r1_zero_reward_fn,
             rollout_outputs,
@@ -223,7 +226,7 @@ def grpo_train_loop(
                     optimizer.zero_grad()
 
         if step % 10 == 0:
-            val_reward = compute_validation_reward(policy, validation_questions, r1_zero_reward_fn, r1_zero_prompt, llm)
+            val_reward = compute_validation_reward(policy, validation_questions, validation_answers, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Answer Reward = {val_reward:.4f}")
 
 if __name__ == "__main__":
@@ -245,16 +248,20 @@ if __name__ == "__main__":
     eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
 
     train_questions = []
+    train_answers = []
     with open(train_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
             train_questions.append(example["problem"])
+            train_answers.append(example["answer"])
 
     validation_questions = []
+    validation_answers = []
     with open(eval_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
             validation_questions.append(example["problem"])
+            validation_answers.append(example["answer"])
 
     n_grpo_steps = 100
     rollout_batch_size = 16
@@ -282,6 +289,8 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         train_questions=train_questions,
         validation_questions=validation_questions,
+        train_answers=train_answers,
+        validation_answers=validation_answers,
         r1_zero_prompt=format_prompt,
         r1_zero_reward_fn=r1_zero_reward_fn,
         n_grpo_steps=n_grpo_steps,
