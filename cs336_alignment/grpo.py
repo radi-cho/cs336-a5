@@ -122,8 +122,9 @@ def grpo_train_loop(
     for step in range(1, n_grpo_steps + 1):
         load_policy_into_vllm_instance(policy, llm)
 
-        rollout_prompts_unique = train_questions[:n_prompts_per_rollout_batch]
-        rollout_answers_unique = train_answers[:n_prompts_per_rollout_batch]
+        indices = random.sample(range(len(train_questions)), n_prompts_per_rollout_batch)
+        rollout_prompts_unique = [train_questions[i] for i in indices]
+        rollout_answers_unique = [train_answers[i] for i in indices]
 
         repeated_prompts = []
         for q in rollout_prompts_unique:
@@ -268,8 +269,10 @@ def grpo_train_loop(
                 "validation/step": step,
             })
 
+            torch.cuda.empty_cache()
             optimizer.zero_grad()
 
+    torch.cuda.empty_cache()
     wandb.finish()
 
 
