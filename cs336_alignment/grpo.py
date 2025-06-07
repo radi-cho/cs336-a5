@@ -261,7 +261,7 @@ def grpo_train_loop(
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad()
-                    # print(f"Step {step}, Loss: {loss.item():.4f}")
+                    print(f"Step {step}, Loss: {loss.item():.4f}")
                     wandb.log({
                         "train/loss": loss.item(),
                         "train/step": step,
@@ -335,7 +335,7 @@ if __name__ == "__main__":
     sampling_max_tokens = 512
     epochs_per_rollout_batch = 1
     train_batch_size = 256
-    gradient_accumulation_steps = 256
+    gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
     use_std_normalization = True
