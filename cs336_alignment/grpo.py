@@ -99,7 +99,7 @@ def grpo_train_loop(
             preds = sample_rollouts(formatted, llm)
         total = 0.0
         for q, o, s in zip(prompts, preds, answers):
-            total += reward_fn(o, q, s)["answer_reward"]
+            total += reward_fn(o, q, s)["reward"]
         return total / len(prompts)
 
     for step in range(1, n_grpo_steps + 1):
@@ -243,7 +243,7 @@ def grpo_train_loop(
 
         if step % 10 == 0:
             val_reward = compute_validation_reward(policy, validation_questions, validation_answers, r1_zero_reward_fn, r1_zero_prompt, llm)
-            print(f"Step {step}: Validation Answer Reward = {val_reward:.4f}")
+            print(f"Step {step}: Validation Reward = {val_reward:.4f}")
             wandb.log({
                 "validation/reward": val_reward,
                 "validation/step": step,
