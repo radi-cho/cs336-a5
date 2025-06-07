@@ -35,7 +35,7 @@ def grpo_train_loop(
     tokenizer,
     train_questions: List[str],
     validation_questions: List[str],
-    r1_zero_prompt: str,
+    r1_zero_prompt: Callable[[str], str],
     r1_zero_reward_fn: Callable[[str, str], Dict[str, float]],
     n_grpo_steps: int,
     rollout_batch_size: int,
@@ -83,7 +83,7 @@ def grpo_train_loop(
     def compute_validation_reward(model, prompts: List[str], reward_fn: Callable[[str, str], Dict[str, float]], prompt_template: str) -> float:
         llm = init_vllm(model.config._name_or_path, device, seed, gpu_memory_utilization)
         load_policy_into_vllm_instance(model, llm)
-        formatted = [prompt_template.format(q) for q in prompts]
+        formatted = [prompt_template(q) for q in prompts]
         with torch.inference_mode():
             preds = sample_rollouts(formatted, llm)
         total = 0.0
@@ -96,7 +96,7 @@ def grpo_train_loop(
         load_policy_into_vllm_instance(policy, llm)
 
         rollout_prompts = train_questions[:rollout_batch_size]
-        formatted_prompts = [r1_zero_prompt.format(q) for q in rollout_prompts]
+        formatted_prompts = [r1_zero_prompt(q) for q in rollout_prompts]
         with torch.inference_mode():
             rollout_outputs = sample_rollouts(formatted_prompts, llm)
 
@@ -133,7 +133,7 @@ def grpo_train_loop(
                 batch_old_log_probs = old_log_probs[start:end].to(device) if old_log_probs is not None else None
 
                 tokenized = tokenize_prompt_and_output(
-                    [r1_zero_prompt.format(q) for q in batch_prompts],
+                    [r1_zero_prompt(q) for q in batch_prompts],
                     batch_outputs,
                     tokenizer,
                 )
@@ -170,7 +170,7 @@ def grpo_train_loop(
 if __name__ == "__main__":
     import json
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from cs336_alignment.drgrpo_grader import r1_zero_reward_fn, question_only_reward_fn
+    from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 
     model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
     policy = AutoModelForCausalLM.from_pretrained(model_id).to("cuda:0")
@@ -215,12 +215,15 @@ if __name__ == "__main__":
     device = "cuda:0"
     seed = 42
 
+    def format_prompt(question):
+        return r1_zero_prompt.replace("{question}", question)
+
     grpo_train_loop(
         policy=policy,
         tokenizer=tokenizer,
         train_questions=train_questions,
         validation_questions=validation_questions,
-        r1_zero_prompt=r1_zero_prompt,
+        r1_zero_prompt=format_prompt,
         r1_zero_reward_fn=r1_zero_reward_fn,
         n_grpo_steps=n_grpo_steps,
         rollout_batch_size=rollout_batch_size,
