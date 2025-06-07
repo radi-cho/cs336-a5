@@ -4,6 +4,7 @@ from vllm import SamplingParams, LLM
 from unittest.mock import patch
 from transformers import PreTrainedModel
 import wandb
+import random
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
@@ -37,9 +38,8 @@ def grpo_train_loop(
     policy: torch.nn.Module,
     tokenizer,
     train_questions: List[str],
-    validation_questions: List[str],
     train_answers: List[str],
-    validation_answers: List[str],
+    validation_data: List[tuple],
     r1_zero_prompt: Callable[[str], str],
     r1_zero_reward_fn: Callable[[str, str, str], Dict[str, float]],
     n_grpo_steps: int,
@@ -91,17 +91,26 @@ def grpo_train_loop(
 
         return outputs
 
-    def compute_validation_reward(model, prompts: List[str], answers: List[str], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
+    def compute_validation_reward(model, validation_data: List[tuple], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
         load_policy_into_vllm_instance(model, llm)
-        prompts = prompts[:1024]
-        answers = answers[:1024]
-        formatted = [prompt_template(q) for q in prompts]
+        validation_data = random.sample(validation_data, min(1024, len(validation_data)))
+        prompts = [prompt_template(q) for q, _ in validation_data]
         with torch.inference_mode():
-            preds = sample_rollouts(formatted, llm)
+            preds = sample_rollouts(prompts, llm)
         total = 0.0
-        for q, o, s in zip(prompts, preds, answers):
-            total += reward_fn(o, q, s)["reward"]
-        return total / len(prompts)
+        
+        with open("validation_rollouts.txt", "a") as f:
+            f.write(f"\n=== New Validation Run ===\n")
+            for (q, s), o in zip(validation_data, preds):
+                reward = reward_fn(o, q, s)["reward"]
+                total += reward
+                f.write(f"Question: {q}\n")
+                f.write(f"Ground Truth: {s}\n")
+                f.write(f"Model Output: {o}\n")
+                f.write(f"Reward: {reward:.4f}\n")
+                f.write("-" * 80 + "\n")
+        
+        return total / len(validation_data)
 
     for step in range(1, n_grpo_steps + 1):
         load_policy_into_vllm_instance(policy, llm)
@@ -243,7 +252,7 @@ def grpo_train_loop(
                     loss = 0.0
 
         if step % 10 == 0:
-            val_reward = compute_validation_reward(policy, validation_questions, validation_answers, r1_zero_reward_fn, r1_zero_prompt, llm)
+            val_reward = compute_validation_reward(policy, validation_data, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Reward = {val_reward:.4f}")
             wandb.log({
                 "validation/reward": val_reward,
@@ -266,6 +275,7 @@ if __name__ == "__main__":
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
     torch.manual_seed(42)
+    random.seed(42)
 
     with open("cs336_alignment/prompts/r1_zero.prompt") as f:
         r1_zero_prompt_template = f.read()
@@ -281,13 +291,11 @@ if __name__ == "__main__":
             train_questions.append(example["problem"])
             train_answers.append(example["answer"])
 
-    validation_questions = []
-    validation_answers = []
+    validation_data = []
     with open(eval_data_path, "r") as f:
         for line in f:
             example = json.loads(line)
-            validation_questions.append(example["problem"])
-            validation_answers.append(example["answer"])
+            validation_data.append((example["problem"], example["answer"]))
 
     n_grpo_steps = 200
     rollout_batch_size = 256
@@ -315,9 +323,8 @@ if __name__ == "__main__":
         policy=policy,
         tokenizer=tokenizer,
         train_questions=train_questions,
-        validation_questions=validation_questions,
         train_answers=train_answers,
-        validation_answers=validation_answers,
+        validation_data=validation_data,
         r1_zero_prompt=format_prompt,
         r1_zero_reward_fn=r1_zero_reward_fn,
         n_grpo_steps=n_grpo_steps,
