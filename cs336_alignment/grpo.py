@@ -74,7 +74,6 @@ def grpo_train_loop(
     )
     optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
 
-    # Initialize vllm once at the start
     llm = init_vllm(policy.config._name_or_path, device, seed, gpu_memory_utilization)
 
     def sample_rollouts(prompts: List[str], llm: LLM) -> List[str]:
@@ -104,7 +103,6 @@ def grpo_train_loop(
         with torch.inference_mode():
             rollout_outputs = sample_rollouts(formatted_prompts, llm)
             print(rollout_outputs)
-            raise
 
         repeated_ground_truths = [s for s in rollout_answers for _ in range(group_size)]
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
