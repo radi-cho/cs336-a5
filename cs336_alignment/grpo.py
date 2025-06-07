@@ -219,9 +219,7 @@ def train_grpo(
                     vllm_engine,
                     r1_zero_reward_fn,
                     eval_pairs,
-                    SamplingParams(temperature=0.0,
-                                   max_tokens=sampling_max_tokens,
-                                   min_tokens=sampling_min_tokens),
+                    SamplingParams(temperature=0.0, max_tokens=sampling_max_tokens, min_tokens=sampling_min_tokens),
                 )
                 
                 accuracy = sum(1 for r in eval_results if r["score"]["reward"] == 1.0) / len(eval_results)
@@ -234,7 +232,6 @@ def train_grpo(
                 shutil.rmtree(checkpoint_path)
     
     finally:
-        vllm_engine.shutdown()
         del vllm_engine
         cleanup_gpu()
         
