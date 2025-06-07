@@ -178,12 +178,18 @@ def grpo_train_loop(
                     input_ids = torch.nn.functional.pad(input_ids, (0, pad_len), value=tokenizer.pad_token_id)
                     labels = torch.nn.functional.pad(labels, (0, pad_len), value=tokenizer.pad_token_id)
 
-                lp = get_response_log_probs(
-                    policy,
-                    input_ids.to(device),
-                    labels.to(device),
-                )["log_probs"].detach()
-                old_log_probs_list.append(lp)
+                with torch.inference_mode():
+                    lp = get_response_log_probs(
+                        policy,
+                        input_ids.to(device),
+                        labels.to(device),
+                    )["log_probs"].detach()
+                    old_log_probs_list.append(lp)
+
+            del all_tokenized
+            torch.cuda.empty_cache()
+            gc.collect()
+            all_tokenized = []
 
             old_log_probs = torch.cat(old_log_probs_list, dim=0)
         else:
@@ -260,6 +266,14 @@ def grpo_train_loop(
                     })
                     loss = 0.0
 
+                del input_ids, labels, response_mask, policy_log_probs, batch_old_log_probs
+                if ra is not None:
+                    del ra
+                if adv is not None:
+                    del adv
+                torch.cuda.empty_cache()
+                gc.collect()
+
         if step % 10 == 0:
             val_reward, val_accuracy = compute_validation_reward(policy, validation_data, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Reward = {val_reward:.4f}, Validation Accuracy = {val_accuracy:.4f}")
@@ -270,9 +284,11 @@ def grpo_train_loop(
             })
 
             torch.cuda.empty_cache()
+            gc.collect()
             optimizer.zero_grad()
 
     torch.cuda.empty_cache()
+    gc.collect()
     wandb.finish()
 
 
@@ -310,13 +326,13 @@ if __name__ == "__main__":
             validation_data.append((example["problem"], example["answer"]))
 
     n_grpo_steps = 200
-    rollout_batch_size = 256
+    rollout_batch_size = 128
     group_size = 8
     sampling_temperature = 1.0
     sampling_min_tokens = 4
     sampling_max_tokens = 1024
     epochs_per_rollout_batch = 1
-    train_batch_size = 256
+    train_batch_size = 128
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
