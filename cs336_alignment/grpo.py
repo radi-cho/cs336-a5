@@ -144,13 +144,15 @@ def train_grpo(
                 log_probs = torch.log_softmax(logits, dim=-1)
                 token_log_probs = log_probs.gather(dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)
                 
+                expanded_advantages = microbatch_advantages.unsqueeze(-1).expand(-1, token_log_probs.size(1))
+                
                 microbatch_loss, loss_metadata = grpo_microbatch_train_step(
                     token_log_probs,
                     attention_mask,
                     gradient_accumulation_steps,
                     loss_type,
                     raw_rewards=raw_rewards[start_idx:end_idx],
-                    advantages=microbatch_advantages,
+                    advantages=expanded_advantages,
                     old_log_probs=microbatch_old_log_probs,
                     cliprange=0.2 if loss_type == "grpo_clip" else None
                 )
