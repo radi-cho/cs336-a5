@@ -151,6 +151,11 @@ def grpo_train_loop(
                 start = i * micro_train_batch_size
                 end = start + micro_train_batch_size
 
+                if start >= rollout_batch_size:
+                    break
+
+                end = min(end, rollout_batch_size)
+
                 batch_prompts = rollout_prompts[start // group_size : (end - 1) // group_size + 1]
                 batch_outputs = rollout_outputs[start:end]
                 batch_advantages = advantages[start:end].to(device)
