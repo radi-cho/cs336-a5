@@ -112,12 +112,25 @@ def grpo_train_loop(
 
         if loss_type == "grpo_clip":
             with torch.inference_mode():
-                tokenized_all = tokenize_prompt_and_output(formatted_prompts, rollout_outputs, tokenizer)
-                old_log_probs = get_response_log_probs(
-                    policy,
-                    tokenized_all["input_ids"].to(device),
-                    tokenized_all["labels"].to(device),
-                )["log_probs"].detach()
+
+                old_log_probs = []
+                for i in range(n_microbatches_per_rollout_batch):
+                    start = i * micro_train_batch_size
+                    end = start + micro_train_batch_size
+                    batch_prompts = rollout_prompts[start // group_size : (end - 1) // group_size + 1]
+                    batch_outputs = rollout_outputs[start:end]
+                    tokenized = tokenize_prompt_and_output(
+                        [r1_zero_prompt(q) for q in batch_prompts],
+                        batch_outputs,
+                        tokenizer,
+                    )
+                    batch_old_log_probs = get_response_log_probs(
+                        policy,
+                        tokenized["input_ids"].to(device),
+                        tokenized["labels"].to(device),
+                    )["log_probs"].detach()
+                    old_log_probs.append(batch_old_log_probs)
+                old_log_probs = torch.cat(old_log_probs, dim=0)
         else:
             old_log_probs = None
 
