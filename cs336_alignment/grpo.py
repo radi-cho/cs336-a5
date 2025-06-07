@@ -86,6 +86,8 @@ def grpo_train_loop(
 
     def compute_validation_reward(model, prompts: List[str], answers: List[str], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
         load_policy_into_vllm_instance(model, llm)
+        prompts = prompts[:1024]
+        answers = answers[:1024]
         formatted = [prompt_template(q) for q in prompts]
         with torch.inference_mode():
             preds = sample_rollouts(formatted, llm)
