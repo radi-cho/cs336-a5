@@ -111,7 +111,7 @@ def grpo_train_loop(
         )
 
         if loss_type == "grpo_clip":
-            with torch.inference_mode():    
+            with torch.inference_mode():
                 all_tokenized = []
                 for i in range(n_microbatches_per_rollout_batch):
                     start = i * micro_train_batch_size
@@ -166,6 +166,7 @@ def grpo_train_loop(
                 labels = tokenized["labels"].to(device)
                 response_mask = tokenized["response_mask"].to(device)
 
+                policy.train()
                 res = get_response_log_probs(policy, input_ids, labels)
                 policy_log_probs = res["log_probs"].to(device)
 
