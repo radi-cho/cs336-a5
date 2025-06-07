@@ -1,36 +1,40 @@
+import json
+import random
 import torch
 import wandb
-import json
-import shutil
-import gc
+import typer
 from pathlib import Path
-from typing import Literal
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from torch.utils.data import Dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from vllm import LLM, SamplingParams
-
-from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
-from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
 from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
-from cs336_alignment.entropy import compute_entropy
-from cs336_alignment.evaluate_vllm import evaluate_vllm
+from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.tokenize_prompt_and_output import tokenize_prompt_and_output
-
+from cs336_alignment.response_logprobs import get_response_log_probs
+from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
+from cs336_alignment.entropy import compute_entropy
 
 def load_prompt_template():
     with open("cs336_alignment/prompts/r1_zero.prompt") as f:
         return f.read()
 
-def cleanup_gpu():
-    gc.collect()
-    torch.cuda.empty_cache()
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
+class MATHDataset(Dataset):
+    def __init__(self, data_path):
+        self.examples = []
+        with open(data_path, "r") as f:
+            for line in f:
+                ex = json.loads(line)
+                self.examples.append(ex)
+    def __len__(self):
+        return len(self.examples)
+    def __getitem__(self, idx):
+        return self.examples[idx]
 
-def train_grpo(
-    model_id: str,
-    train_data: list[dict],
-    eval_data: list[dict],
-    output_dir: str,
+def main(
+    model_id: str = "/data/a5-alignment/models/Qwen2.5-Math-1.5B",
+    train_data_path: str = "/data/a5-alignment/MATH/train.jsonl",
+    eval_data_path: str = "/data/a5-alignment/MATH/validation.jsonl",
+    output_dir: str = "grpo_outputs",
     n_grpo_steps: int = 200,
     learning_rate: float = 1e-5,
     advantage_eps: float = 1e-6,
@@ -42,242 +46,107 @@ def train_grpo(
     epochs_per_rollout_batch: int = 1,
     train_batch_size: int = 256,
     gradient_accumulation_steps: int = 128,
-    gpu_memory_utilization: float = 0.2,
-    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"] = "reinforce_with_baseline",
+    gpu_memory_utilization: float = 0.85,
+    loss_type: str = "reinforce_with_baseline",
     use_std_normalization: bool = True,
     eval_every: int = 10,
     eval_subset_size: int = 1024,
+    seed: int = 42,
 ):
-    cleanup_gpu()
-    
+    wandb.init(project="cs336-a5", entity="radi-cho")
+    device = "cuda:0"
+    torch.manual_seed(seed)
+    random.seed(seed)
+    prompt_template = load_prompt_template()
+    train_data = [json.loads(line) for line in open(train_data_path)]
+    eval_data = [json.loads(line) for line in open(eval_data_path)]
+    eval_subset = eval_data[:eval_subset_size]
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+    model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.0, betas=(0.9, 0.95))
     assert train_batch_size % gradient_accumulation_steps == 0
     micro_train_batch_size = train_batch_size // gradient_accumulation_steps
     assert rollout_batch_size % group_size == 0
     n_prompts_per_rollout_batch = rollout_batch_size // group_size
     assert train_batch_size >= group_size
     n_microbatches_per_rollout_batch = rollout_batch_size // micro_train_batch_size
-
-    wandb.init(project="cs336-a5-2", entity="radi-cho")
-    wandb.define_metric("step")
-    wandb.define_metric("train/*", step_metric="step")
-    wandb.define_metric("eval/*", step_metric="step")
-    
-    eval_subset = eval_data[:eval_subset_size]
-    
-    device = "cuda:0"
-    model = AutoModelForCausalLM.from_pretrained(model_id).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left"
-
-    cleanup_gpu()
-    vllm_engine = LLM(model=model_id, gpu_memory_utilization=gpu_memory_utilization)
-    prompt_template = load_prompt_template()
-    
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=0.0,
-        betas=(0.9, 0.95),
-    )
-    
+    vllm_model = LLM(model=model_id, gpu_memory_utilization=gpu_memory_utilization)
     sampling_params = SamplingParams(
         temperature=sampling_temperature,
         top_p=1.0,
         max_tokens=sampling_max_tokens,
         min_tokens=sampling_min_tokens,
-        n=group_size,
         stop=["</answer>"],
-        include_stop_str_in_output=True
+        include_stop_str_in_output=True,
     )
-    
-    try:
-        for step in range(n_grpo_steps):
-            print(f"\n=== GRPO Step {step+1}/{n_grpo_steps} ===")
-            batch_data = train_data[step * n_prompts_per_rollout_batch:(step + 1) * n_prompts_per_rollout_batch]
-            prompts = []
-            ground_truths = []
-            for p in batch_data:
-                prompts.append(prompt_template.replace("{question}", p["problem"]))
-                ground_truths.append(p["answer"])
-
-            rollout_responses = []
-            repeated_ground_truths = []
-            for i in range(0, len(prompts), group_size):
-                group_prompts = prompts[i:i+group_size]
-                group_truths = ground_truths[i:i+group_size]
-                outputs = vllm_engine.generate(group_prompts, sampling_params, use_tqdm=False)
-                for output, truth in zip(outputs, group_truths):
-                    for text in output.outputs:
-                        rollout_responses.append(text.text)
-                        repeated_ground_truths.append(truth)
-
-            advantages, raw_rewards, reward_meta = compute_group_normalized_rewards(
-                r1_zero_reward_fn,
-                rollout_responses,
-                repeated_ground_truths,
-                group_size,
-                advantage_eps,
-                use_std_normalization,
-            )
-
-            ids = tokenize_prompt_and_output(prompts, rollout_responses, tokenizer)
-            input_ids = ids["input_ids"].to(device)
-            labels = ids["labels"].to(device)
-            response_mask = ids["response_mask"].to(device)
-
-            advantages = advantages.to(device)
-            raw_rewards = raw_rewards.to(device)
-
-            old_log_probs_cpu = None
-            if loss_type == "grpo_clip":
-                old_log_probs_list = []
-                for i in range(len(rollout_responses)):
-                    enc = tokenizer(rollout_responses[i], return_tensors="pt", truncation=True)
-                    input_ids_ = enc.input_ids.to(device)
-                    attn_mask_ = enc.attention_mask.to(device)
-                    with torch.no_grad():
-                        logits = model(input_ids=input_ids_, attention_mask=attn_mask_).logits
-                        log_probs = torch.log_softmax(logits, dim=-1)
-                        tok_lp = log_probs.gather(dim=-1, index=input_ids_.unsqueeze(-1)).squeeze(-1)
-                    old_log_probs_list.append(tok_lp.cpu())
-                old_log_probs_cpu = torch.stack(old_log_probs_list)
-
-            n_microbatches = input_ids.size(0) // micro_train_batch_size
-            for epoch in range(epochs_per_rollout_batch):
-                model.train()
-                total_loss = 0.0
-                total_entropy = 0.0
-                total_clip_frac = 0.0
-                for micro_idx in range(n_microbatches):
-                    st = micro_idx * micro_train_batch_size
-                    ed = st + micro_train_batch_size
-                    micro_input_ids = input_ids[st:ed]
-                    micro_labels = labels[st:ed]
-                    micro_response_mask = response_mask[st:ed]
-                    micro_advantages = advantages[st:ed]
-                    micro_raw_rewards = raw_rewards[st:ed]
-                    micro_old_log_probs = (
-                        old_log_probs_cpu[st:ed].to(device) if old_log_probs_cpu is not None else None
-                    )
-                    outputs = model(input_ids=micro_input_ids, attention_mask=(micro_input_ids != tokenizer.pad_token_id))
-                    logits = outputs.logits
-                    log_probs = torch.log_softmax(logits, dim=-1)
-                    tok_lp = log_probs.gather(dim=-1, index=micro_input_ids.unsqueeze(-1)).squeeze(-1)
-                    adv_gpu = micro_advantages.unsqueeze(-1).expand_as(tok_lp)
-                    micro_loss, meta = grpo_microbatch_train_step(
-                        tok_lp,
-                        micro_response_mask,
-                        gradient_accumulation_steps,
-                        loss_type,
-                        raw_rewards=micro_raw_rewards,
-                        advantages=adv_gpu,
-                        old_log_probs=micro_old_log_probs,
-                        cliprange=0.2 if loss_type == "grpo_clip" else None,
-                    )
-                    total_loss += micro_loss.item() * gradient_accumulation_steps
-                    total_entropy += compute_entropy(logits).mean().item()
-                    if "is_clipped" in meta:
-                        total_clip_frac += meta["is_clipped"].float().mean().item()
-                    if (micro_idx + 1) % gradient_accumulation_steps == 0:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                        optimizer.step()
-                        optimizer.zero_grad()
-                avg_loss = total_loss / n_microbatches
-                avg_entropy = total_entropy / n_microbatches
-                avg_clip_frac = (
-                    total_clip_frac / n_microbatches if loss_type == "grpo_clip" else 0.0
-                )
-
-                wandb.log({
-                    "train/loss": avg_loss,
-                    "train/entropy": avg_entropy,
-                    "train/clip_fraction": avg_clip_frac,
-                    "train/raw_reward_mean": raw_rewards.mean().item(),
-                    "train/raw_reward_std": raw_rewards.std().item(),
-                    "train/advantage_mean": advantages.mean().item(),
-                    "train/advantage_std": advantages.std().item(),
-                    "step": step,
-                    "epoch": epoch
-                })
-                print(f"Step {step + 1}, Epoch {epoch + 1}")
-                print(f"Loss: {avg_loss:.4f}, Entropy: {avg_entropy:.4f}")
-                if loss_type == "grpo_clip":
-                    print(f"Clip Fraction: {avg_clip_frac:.4f}")
-            
-            if (step + 1) % eval_every == 0:
-                cleanup_gpu()
-                
-                checkpoint_path = Path(output_dir) / "checkpoint_recent"
-                model.save_pretrained(checkpoint_path)
-                tokenizer.save_pretrained(checkpoint_path)
-                
-                vllm_engine.reload(model=str(checkpoint_path))
-                
-                eval_pairs = [
-                    (prompt_template.replace("{question}", p["problem"]), p["answer"])
-                    for p in eval_subset
-                ]
-
-                eval_results = evaluate_vllm(
-                    vllm_engine,
-                    r1_zero_reward_fn,
-                    eval_pairs,
-                    SamplingParams(temperature=0.0, max_tokens=sampling_max_tokens, min_tokens=sampling_min_tokens),
-                )
-                
-                accuracy = sum(1 for r in eval_results if r["score"]["reward"] == 1.0) / len(eval_results)
-                print(f"Eval Accuracy: {accuracy:.2%}")
-                
-                vllm_engine.reload(model=model_id)
-                
-                del eval_results
-                cleanup_gpu()
-                shutil.rmtree(checkpoint_path)
-    
-    finally:
-        del vllm_engine
-        cleanup_gpu()
-        
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-        model.save_pretrained(output_path / "final_model")
-        tokenizer.save_pretrained(output_path / "final_model")
-        
-        final_vllm = LLM(model=str(output_path / "final_model"), gpu_memory_utilization=gpu_memory_utilization)
-        final_results = evaluate_vllm(
-            final_vllm,
-            r1_zero_reward_fn,
-            [(prompt_template.replace("{question}", p["problem"]), p["answer"]) for p in eval_data],
-            SamplingParams(temperature=0.0, max_tokens=sampling_max_tokens, min_tokens=sampling_min_tokens)
+    for step in range(n_grpo_steps):
+        batch = random.sample(train_data, rollout_batch_size)
+        prompts, ground_truths = [], []
+        for ex in batch:
+            prompt = prompt_template.replace("{question}", ex["problem"])
+            prompts.append(prompt)
+            ground_truths.append(ex["answer"])
+        outputs = vllm_model.generate(prompts, sampling_params)
+        responses = [o.outputs[0].text for o in outputs]
+        advantages, raw_rewards, _ = compute_group_normalized_rewards(
+            r1_zero_reward_fn, responses, ground_truths, group_size, advantage_eps, use_std_normalization
         )
-        
-        final_accuracy = sum(1 for r in final_results if r["score"]["reward"] == 1.0) / len(final_results)
-        print(f"Final Accuracy: {final_accuracy:.2%}")
-        wandb.log({
-            "eval/final_accuracy": final_accuracy,
-            "step": n_grpo_steps
-        })
-        wandb.finish()
-        
-        del final_vllm
-        cleanup_gpu()
+        tokenized = tokenize_prompt_and_output(prompts, responses, tokenizer)
+        input_ids = tokenized["input_ids"].to(device)
+        labels = tokenized["labels"].to(device)
+        response_mask = tokenized["response_mask"].to(device)
+        with torch.no_grad():
+            old_log_probs = get_response_log_probs(model, input_ids, labels, False)["log_probs"].detach()
+        for epoch in range(epochs_per_rollout_batch):
+            indices = torch.randperm(rollout_batch_size)
+            for i in range(n_microbatches_per_rollout_batch):
+                start = i * micro_train_batch_size
+                end = (i + 1) * micro_train_batch_size
+                idx = indices[start:end]
+                mb_input_ids = input_ids[idx]
+                mb_labels = labels[idx]
+                mb_response_mask = response_mask[idx]
+                mb_advantages = advantages[idx].to(device)
+                mb_raw_rewards = raw_rewards[idx].to(device)
+                mb_old_log_probs = old_log_probs[idx]
+                policy_log_probs = get_response_log_probs(model, mb_input_ids, mb_labels, False)["log_probs"]
+                if loss_type == "grpo_clip":
+                    loss, meta = grpo_microbatch_train_step(
+                        policy_log_probs, mb_response_mask, gradient_accumulation_steps, loss_type,
+                        advantages=mb_advantages, old_log_probs=mb_old_log_probs, cliprange=0.2
+                    )
+                elif loss_type == "reinforce_with_baseline":
+                    loss, meta = grpo_microbatch_train_step(
+                        policy_log_probs, mb_response_mask, gradient_accumulation_steps, loss_type,
+                        advantages=mb_advantages
+                    )
+                else:
+                    loss, meta = grpo_microbatch_train_step(
+                        policy_log_probs, mb_response_mask, gradient_accumulation_steps, loss_type,
+                        raw_rewards=mb_raw_rewards
+                    )
+                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                wandb.log({"train/loss": loss.item(), "train/grad_norm": norm.item(), "step": step})
+                optimizer.step()
+                optimizer.zero_grad()
+        if (step + 1) % eval_every == 0 or step == 0:
+            vllm_eval = LLM(model=model_id, gpu_memory_utilization=0.2)
+            eval_prompts = [prompt_template.replace("{question}", ex["problem"]) for ex in eval_subset]
+            eval_truths = [ex["answer"] for ex in eval_subset]
+            eval_outputs = vllm_eval.generate(eval_prompts, SamplingParams(
+                temperature=0.0, top_p=1.0, max_tokens=1024, stop=["</answer>"], include_stop_str_in_output=True))
+            eval_responses = [o.outputs[0].text for o in eval_outputs]
+            eval_rewards = [r1_zero_reward_fn(r, t)["reward"] for r, t in zip(eval_responses, eval_truths)]
+            avg_reward = sum(eval_rewards) / len(eval_rewards)
+            wandb.log({"eval/avg_reward": avg_reward, "step": step})
+            print(f"Step {step}: Eval avg_reward {avg_reward:.4f}")
+            del vllm_eval
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(str(Path(output_dir) / "final_model"))
+    tokenizer.save_pretrained(str(Path(output_dir) / "final_model"))
+    wandb.finish()
 
 if __name__ == "__main__":
-    model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
-    train_data_path = "/data/a5-alignment/MATH/train.jsonl"
-    eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
-    output_dir = "grpo_outputs"
-    
-    with open(train_data_path, "r") as f:
-        train_data = [json.loads(line) for line in f]
-    
-    with open(eval_data_path, "r") as f:
-        eval_data = [json.loads(line) for line in f]
-    
-    train_grpo(
-        model_id=model_id,
-        train_data=train_data,
-        eval_data=eval_data,
-        output_dir=output_dir
-    )
+    typer.run(main)
