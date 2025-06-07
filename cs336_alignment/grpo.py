@@ -263,17 +263,17 @@ if __name__ == "__main__":
             validation_questions.append(example["problem"])
             validation_answers.append(example["answer"])
 
-    n_grpo_steps = 100
-    rollout_batch_size = 16
-    group_size = 4
+    n_grpo_steps = 200
+    rollout_batch_size = 256
+    group_size = 8
     sampling_temperature = 1.0
-    sampling_min_tokens = 1
-    sampling_max_tokens = 20
+    sampling_min_tokens = 4
+    sampling_max_tokens = 1024
     epochs_per_rollout_batch = 1
-    train_batch_size = 8
-    gradient_accumulation_steps = 2
-    gpu_memory_utilization = 0.2
-    loss_type = "grpo_clip"
+    train_batch_size = 256
+    gradient_accumulation_steps = 128
+    gpu_memory_utilization = 0.85
+    loss_type = "reinforce_with_baseline"
     use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
@@ -283,6 +283,13 @@ if __name__ == "__main__":
 
     def format_prompt(question):
         return r1_zero_prompt.replace("{question}", question)
+
+    optimizer = torch.optim.AdamW(
+        policy.parameters(),
+        lr=learning_rate,
+        weight_decay=0.0,
+        betas=(0.9, 0.95),
+    )
 
     grpo_train_loop(
         policy=policy,

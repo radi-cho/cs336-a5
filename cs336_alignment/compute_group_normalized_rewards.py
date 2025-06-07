@@ -10,8 +10,6 @@ def compute_group_normalized_rewards(
 ):
     batch_size = len(rollout_responses)
 
-    print(list(zip(rollout_responses, repeated_ground_truths)))
-    raise
     raw_reward_list = [reward_fn(resp, gt)["reward"] for resp, gt in zip(rollout_responses, repeated_ground_truths)]
     raw_rewards = torch.tensor(raw_reward_list, dtype=torch.float32)
     
