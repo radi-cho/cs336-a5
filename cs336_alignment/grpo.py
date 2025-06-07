@@ -73,6 +73,7 @@ def main(
     assert train_batch_size >= group_size
     n_microbatches_per_rollout_batch = rollout_batch_size // micro_train_batch_size
     vllm_model = LLM(model=model_id, gpu_memory_utilization=gpu_memory_utilization)
+
     sampling_params = SamplingParams(
         temperature=sampling_temperature,
         top_p=1.0,
@@ -81,6 +82,7 @@ def main(
         stop=["</answer>"],
         include_stop_str_in_output=True,
     )
+
     for step in range(n_grpo_steps):
         batch = random.sample(train_data, rollout_batch_size)
         prompts, ground_truths = [], []
@@ -93,10 +95,12 @@ def main(
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
             r1_zero_reward_fn, responses, ground_truths, group_size, advantage_eps, use_std_normalization
         )
+
         tokenized = tokenize_prompt_and_output(prompts, responses, tokenizer)
         input_ids = tokenized["input_ids"].to(device)
         labels = tokenized["labels"].to(device)
         response_mask = tokenized["response_mask"].to(device)
+
         with torch.no_grad():
             old_log_probs = get_response_log_probs(model, input_ids, labels, False)["log_probs"].detach()
         for epoch in range(epochs_per_rollout_batch):
@@ -131,6 +135,7 @@ def main(
                 wandb.log({"train/loss": loss.item(), "train/grad_norm": norm.item(), "step": step})
                 optimizer.step()
                 optimizer.zero_grad()
+
         if (step + 1) % eval_every == 0 or step == 0:
             vllm_eval = LLM(model=model_id, gpu_memory_utilization=0.2)
             eval_prompts = [prompt_template.replace("{question}", ex["problem"]) for ex in eval_subset]
@@ -143,6 +148,7 @@ def main(
             wandb.log({"eval/avg_reward": avg_reward, "step": step})
             print(f"Step {step}: Eval avg_reward {avg_reward:.4f}")
             del vllm_eval
+
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(Path(output_dir) / "final_model"))
     tokenizer.save_pretrained(str(Path(output_dir) / "final_model"))
