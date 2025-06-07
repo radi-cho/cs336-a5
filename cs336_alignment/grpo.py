@@ -3,6 +3,7 @@ import random
 import torch
 import wandb
 import typer
+import gc
 from pathlib import Path
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -46,11 +47,11 @@ def main(
     epochs_per_rollout_batch: int = 1,
     train_batch_size: int = 256,
     gradient_accumulation_steps: int = 128,
-    gpu_memory_utilization: float = 0.2,
+    gpu_memory_utilization: float = 0.1,
     loss_type: str = "reinforce_with_baseline",
     use_std_normalization: bool = True,
     eval_every: int = 10,
-    eval_subset_size: int = 1024,
+    eval_subset_size: int = 256,
     seed: int = 42,
 ):
     wandb.init(project="cs336-a5", entity="radi-cho")
@@ -69,11 +70,8 @@ def main(
     assert train_batch_size % gradient_accumulation_steps == 0
     micro_train_batch_size = train_batch_size // gradient_accumulation_steps
     assert rollout_batch_size % group_size == 0
-    n_prompts_per_rollout_batch = rollout_batch_size // group_size
-    assert train_batch_size >= group_size
     n_microbatches_per_rollout_batch = rollout_batch_size // micro_train_batch_size
     vllm_model = LLM(model=model_id, gpu_memory_utilization=gpu_memory_utilization)
-
     sampling_params = SamplingParams(
         temperature=sampling_temperature,
         top_p=1.0,
@@ -82,7 +80,6 @@ def main(
         stop=["</answer>"],
         include_stop_str_in_output=True,
     )
-
     for step in range(n_grpo_steps):
         batch = random.sample(train_data, rollout_batch_size)
         prompts, ground_truths = [], []
@@ -90,21 +87,22 @@ def main(
             prompt = prompt_template.replace("{question}", ex["problem"])
             prompts.append(prompt)
             ground_truths.append(ex["answer"])
-        outputs = vllm_model.generate(prompts, sampling_params)
-        responses = [o.outputs[0].text for o in outputs]
+        with torch.no_grad():
+            outputs = vllm_model.generate(prompts, sampling_params)
+            responses = [o.outputs[0].text for o in outputs]
+        del outputs
+        gc.collect()
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
             r1_zero_reward_fn, responses, ground_truths, group_size, advantage_eps, use_std_normalization
         )
-
         tokenized = tokenize_prompt_and_output(prompts, responses, tokenizer)
-        input_ids = tokenized["input_ids"].to(device)
-        labels = tokenized["labels"].to(device)
-        response_mask = tokenized["response_mask"].to(device)
-
+        input_ids = tokenized["input_ids"].to(device, non_blocking=True)
+        labels = tokenized["labels"].to(device, non_blocking=True)
+        response_mask = tokenized["response_mask"].to(device, non_blocking=True)
         with torch.no_grad():
             old_log_probs = get_response_log_probs(model, input_ids, labels, False)["log_probs"].detach()
         for epoch in range(epochs_per_rollout_batch):
-            indices = torch.randperm(rollout_batch_size)
+            indices = torch.randperm(rollout_batch_size, device=device)
             for i in range(n_microbatches_per_rollout_batch):
                 start = i * micro_train_batch_size
                 end = (i + 1) * micro_train_batch_size
@@ -112,8 +110,8 @@ def main(
                 mb_input_ids = input_ids[idx]
                 mb_labels = labels[idx]
                 mb_response_mask = response_mask[idx]
-                mb_advantages = advantages[idx].to(device)
-                mb_raw_rewards = raw_rewards[idx].to(device)
+                mb_advantages = advantages[idx].to(device, non_blocking=True)
+                mb_raw_rewards = raw_rewards[idx].to(device, non_blocking=True)
                 mb_old_log_probs = old_log_probs[idx]
                 policy_log_probs = get_response_log_probs(model, mb_input_ids, mb_labels, False)["log_probs"]
                 if loss_type == "grpo_clip":
@@ -135,20 +133,26 @@ def main(
                 wandb.log({"train/loss": loss.item(), "train/grad_norm": norm.item(), "step": step})
                 optimizer.step()
                 optimizer.zero_grad()
-
+                del mb_input_ids, mb_labels, mb_response_mask, mb_advantages, mb_raw_rewards, mb_old_log_probs, policy_log_probs, loss, meta
+                torch.cuda.empty_cache()
+            gc.collect()
+        del input_ids, labels, response_mask, old_log_probs, tokenized, advantages, raw_rewards
+        torch.cuda.empty_cache()
+        gc.collect()
         if (step + 1) % eval_every == 0 or step == 0:
-            vllm_eval = LLM(model=model_id, gpu_memory_utilization=0.2)
-            eval_prompts = [prompt_template.replace("{question}", ex["problem"]) for ex in eval_subset]
-            eval_truths = [ex["answer"] for ex in eval_subset]
-            eval_outputs = vllm_eval.generate(eval_prompts, SamplingParams(
-                temperature=0.0, top_p=1.0, max_tokens=1024, stop=["</answer>"], include_stop_str_in_output=True))
-            eval_responses = [o.outputs[0].text for o in eval_outputs]
-            eval_rewards = [r1_zero_reward_fn(r, t)["reward"] for r, t in zip(eval_responses, eval_truths)]
-            avg_reward = sum(eval_rewards) / len(eval_rewards)
-            wandb.log({"eval/avg_reward": avg_reward, "step": step})
-            print(f"Step {step}: Eval avg_reward {avg_reward:.4f}")
-            del vllm_eval
-
+            with torch.no_grad():
+                eval_prompts = [prompt_template.replace("{question}", ex["problem"]) for ex in eval_subset]
+                eval_truths = [ex["answer"] for ex in eval_subset]
+                eval_outputs = vllm_model.generate(eval_prompts, SamplingParams(
+                    temperature=0.0, top_p=1.0, max_tokens=1024, stop=["</answer>"], include_stop_str_in_output=True))
+                eval_responses = [o.outputs[0].text for o in eval_outputs]
+                eval_rewards = [r1_zero_reward_fn(r, t)["reward"] for r, t in zip(eval_responses, eval_truths)]
+                avg_reward = sum(eval_rewards) / len(eval_rewards)
+                wandb.log({"eval/avg_reward": avg_reward, "step": step})
+                print(f"Step {step}: Eval avg_reward {avg_reward:.4f}")
+                del eval_outputs, eval_prompts, eval_truths, eval_responses, eval_rewards
+                torch.cuda.empty_cache()
+                gc.collect()
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(Path(output_dir) / "final_model"))
     tokenizer.save_pretrained(str(Path(output_dir) / "final_model"))
