@@ -83,11 +83,12 @@ def grpo_train_loop(
     llm = init_vllm(policy.config._name_or_path, device, seed, gpu_memory_utilization)
 
     def sample_rollouts(prompts: List[str], llm: LLM) -> List[str]:
+        vllm_outputs = llm.generate(prompts, sampling_params=sampling_params)
         outputs = []
-        for i in range(0, len(prompts), n_prompts_per_rollout_batch):
-            batch = prompts[i : i + n_prompts_per_rollout_batch]
-            results = llm.generate(batch, sampling_params=sampling_params)
-            outputs.extend([r.outputs[0].text for r in results])
+        for vout in vllm_outputs:
+            for out in vout.outputs:
+                outputs.append(out.text)
+
         return outputs
 
     def compute_validation_reward(model, prompts: List[str], answers: List[str], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
