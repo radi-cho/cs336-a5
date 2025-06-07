@@ -32,7 +32,7 @@ def train_grpo(
     epochs_per_rollout_batch: int = 1,
     train_batch_size: int = 256,
     gradient_accumulation_steps: int = 128,
-    gpu_memory_utilization: float = 0.85,
+    gpu_memory_utilization: float = 0.2,
     loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"] = "reinforce_with_baseline",
     use_std_normalization: bool = True,
     eval_every: int = 10,
