@@ -12,6 +12,7 @@ from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 from cs336_alignment.entropy import compute_entropy
 from cs336_alignment.evaluate_vllm import evaluate_vllm
 
+
 def load_prompt_template():
     with open("cs336_alignment/prompts/r1_zero.prompt") as f:
         return f.read()
@@ -32,7 +33,7 @@ def train_grpo(
     epochs_per_rollout_batch: int = 1,
     train_batch_size: int = 256,
     gradient_accumulation_steps: int = 128,
-    gpu_memory_utilization: float = 0.2,
+    gpu_memory_utilization: float = 0.1,
     loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"] = "reinforce_with_baseline",
     use_std_normalization: bool = True,
     eval_every: int = 10,
