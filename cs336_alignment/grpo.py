@@ -165,6 +165,7 @@ def grpo_train_loop(
                     batch_outputs,
                     tokenizer,
                 )
+
                 all_tokenized.append(tokenized)
                 max_seq_len = max(max_seq_len, tokenized["input_ids"].size(1))
 

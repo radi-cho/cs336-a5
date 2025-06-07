@@ -6,11 +6,9 @@ def compute_grpo_clip_loss(
     old_log_probs: torch.Tensor,
     cliprange: float,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    batch_size, sequence_length = policy_log_probs.shape
+    b, sequence_length = policy_log_probs.shape
     if advantages.dim() == 2:
         advantages = advantages.squeeze(1)
-    elif advantages.dim() != 1:
-        raise ValueError(f"Expected advantages to have shape (batch_size,) or (batch_size, 1), got {advantages.shape}")
 
     log_ratio = policy_log_probs - old_log_probs
     ratio = torch.exp(log_ratio)

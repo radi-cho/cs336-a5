@@ -139,7 +139,7 @@ def run_expert_iteration(
                     model.save_pretrained(checkpoint_path)
                     tokenizer.save_pretrained(checkpoint_path)
 
-                    eval_vllm = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.08)
+                    eval_vllm = LLM(model=str(checkpoint_path), gpu_memory_utilization=0.2)
                     accuracy = run_evaluation(eval_subset, eval_vllm)
 
                     with torch.no_grad():

@@ -42,7 +42,7 @@ def log_generations(
     print(f"Total: {len(results)}")
     print(f"Correct: {len(correct_responses)}")
     print(f"Incorrect: {len(incorrect_responses)}")
-    print(f"Avg Response Length: {np.mean(response_lengths):.2f}")
-    print(f"Avg Length (Correct): {np.mean([r['response_length'] for r in correct_responses]) if correct_responses else 0:.2f}")
-    print(f"Avg Length (Incorrect): {np.mean([r['response_length'] for r in incorrect_responses]) if incorrect_responses else 0:.2f}")
+    print(f"Avg Length: {np.mean(response_lengths):.2f}")
+    print(f"Avg Correct: {np.mean([r['response_length'] for r in correct_responses]) if correct_responses else 0:.2f}")
+    print(f"Avg Incorrect: {np.mean([r['response_length'] for r in incorrect_responses]) if incorrect_responses else 0:.2f}")
     return results

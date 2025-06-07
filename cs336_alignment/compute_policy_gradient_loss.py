@@ -12,7 +12,7 @@ def compute_policy_gradient_loss(
     cliprange: Optional[float] = None,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
 
-    assert policy_log_probs.dim() == 2, "policy_log_probs must have shape (batch_size, sequence_length)"
+    assert policy_log_probs.dim() == 2
 
     if loss_type == "no_baseline":
         loss = compute_naive_policy_gradient_loss(raw_rewards, policy_log_probs)
@@ -29,6 +29,7 @@ def compute_policy_gradient_loss(
             old_log_probs,
             cliprange
         )
+
         metadata = grpo_metadata
 
     return loss, metadata
