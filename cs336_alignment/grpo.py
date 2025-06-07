@@ -45,7 +45,7 @@ def train_grpo(
     assert train_batch_size >= group_size
     n_microbatches_per_rollout_batch = rollout_batch_size // micro_train_batch_size
 
-    wandb.init(project="cs336-a5", entity="radi-cho")
+    wandb.init(project="cs336-a5-2", entity="radi-cho")
     
     with open(train_data_path, "r") as f:
         train_data = [json.loads(line) for line in f]
