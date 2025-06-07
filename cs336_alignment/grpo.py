@@ -102,14 +102,14 @@ def grpo_train_loop(
         with open("validation_rollouts.txt", "a") as f:
             f.write(f"\n=== New Validation Run ===\n")
             for (q, s), o in zip(validation_data, preds):
-                reward = reward_fn(o, q, s)["reward"]
+                reward = reward_fn(o, s)["reward"]
                 total += reward
                 f.write(f"Question: {q}\n")
                 f.write(f"Ground Truth: {s}\n")
                 f.write(f"Model Output: {o}\n")
                 f.write(f"Reward: {reward:.4f}\n")
                 f.write("-" * 80 + "\n")
-        
+
         return total / len(validation_data)
 
     for step in range(1, n_grpo_steps + 1):
