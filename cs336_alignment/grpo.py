@@ -166,3 +166,77 @@ def grpo_train_loop(
         if step % 10 == 0:
             val_reward = compute_validation_reward(policy, validation_questions, r1_zero_reward_fn, r1_zero_prompt)
             print(f"Step {step}: Validation Answer Reward = {val_reward:.4f}")
+
+if __name__ == "__main__":
+    import json
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from cs336_alignment.drgrpo_grader import r1_zero_reward_fn, question_only_reward_fn
+
+    model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
+    policy = AutoModelForCausalLM.from_pretrained(model_id).to("cuda:0")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+    torch.manual_seed(42)
+
+    with open("cs336_alignment/prompts/r1_zero.prompt") as f:
+        r1_zero_prompt = f.read()
+
+    train_data_path = "/data/a5-alignment/MATH/train.jsonl"
+    eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
+
+    train_questions = []
+    with open(train_data_path, "r") as f:
+        for line in f:
+            example = json.loads(line)
+            train_questions.append(example["problem"])
+
+    validation_questions = []
+    with open(eval_data_path, "r") as f:
+        for line in f:
+            example = json.loads(line)
+            validation_questions.append(example["problem"])
+
+    n_grpo_steps = 100
+    rollout_batch_size = 16
+    group_size = 4
+    sampling_temperature = 1.0
+    sampling_min_tokens = 1
+    sampling_max_tokens = 20
+    epochs_per_rollout_batch = 1
+    train_batch_size = 8
+    gradient_accumulation_steps = 2
+    gpu_memory_utilization = 0.8
+    loss_type = "grpo_clip"
+    use_std_normalization = True
+    advantage_eps = 1e-6
+    cliprange = 0.2
+    learning_rate = 1e-5
+    device = "cuda:0"
+    seed = 42
+
+    grpo_train_loop(
+        policy=policy,
+        tokenizer=tokenizer,
+        train_questions=train_questions,
+        validation_questions=validation_questions,
+        r1_zero_prompt=r1_zero_prompt,
+        r1_zero_reward_fn=r1_zero_reward_fn,
+        n_grpo_steps=n_grpo_steps,
+        rollout_batch_size=rollout_batch_size,
+        group_size=group_size,
+        sampling_temperature=sampling_temperature,
+        sampling_min_tokens=sampling_min_tokens,
+        sampling_max_tokens=sampling_max_tokens,
+        epochs_per_rollout_batch=epochs_per_rollout_batch,
+        train_batch_size=train_batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        gpu_memory_utilization=gpu_memory_utilization,
+        loss_type=loss_type,
+        use_std_normalization=use_std_normalization,
+        advantage_eps=advantage_eps,
+        cliprange=cliprange,
+        learning_rate=learning_rate,
+        device=device,
+        seed=seed,
+    )
