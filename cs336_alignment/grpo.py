@@ -46,7 +46,7 @@ def main(
     epochs_per_rollout_batch: int = 1,
     train_batch_size: int = 256,
     gradient_accumulation_steps: int = 128,
-    gpu_memory_utilization: float = 0.85,
+    gpu_memory_utilization: float = 0.2,
     loss_type: str = "reinforce_with_baseline",
     use_std_normalization: bool = True,
     eval_every: int = 10,
