@@ -166,6 +166,13 @@ def grpo_train_loop(
                 labels = tokenized["labels"].to(device)
                 response_mask = tokenized["response_mask"].to(device)
 
+                if batch_old_log_probs is not None:
+                    pad_len = batch_old_log_probs.size(1) - input_ids.size(1)
+                    if pad_len > 0:
+                        input_ids = torch.nn.functional.pad(input_ids, (0, pad_len), value=tokenizer.pad_token_id)
+                        labels = torch.nn.functional.pad(labels, (0, pad_len), value=tokenizer.pad_token_id)
+                        response_mask = torch.nn.functional.pad(response_mask, (0, pad_len), value=0)
+
                 policy.train()
                 res = get_response_log_probs(policy, input_ids, labels)
                 policy_log_probs = res["log_probs"].to(device)
