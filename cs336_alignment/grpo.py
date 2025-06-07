@@ -191,10 +191,13 @@ def grpo_train_loop(
                 policy_log_probs = res["log_probs"].to(device)
 
                 if old_log_probs is None:
+                    print("old_log_probs is None")
                     batch_old_log_probs = policy_log_probs.detach()
                 else:
-                    # Ensure we're using the correct slice of old_log_probs
+                    print(old_log_probs.shape)
                     batch_old_log_probs = old_log_probs[start:end].to(device)
+
+                print("b", batch_old_log_probs.shape)
 
                 ra = batch_raw_rewards if loss_type == "no_baseline" else None
                 adv = batch_advantages if loss_type in {"reinforce_with_baseline", "grpo_clip"} else None
