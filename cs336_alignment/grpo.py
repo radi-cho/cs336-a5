@@ -115,18 +115,22 @@ def grpo_train_loop(
                 all_tokenized = []
                 for i in range(n_microbatches_per_rollout_batch):
                     start = i * micro_train_batch_size
-                    end = start + micro_train_batch_size
-                    batch_prompts = rollout_prompts[start // group_size : (end - 1) // group_size + 1]
+                    end   = min(start + micro_train_batch_size, rollout_batch_size)  # don’t overshoot
+
+                    batch_prompts = rollout_prompts[start:end]
                     batch_outputs = rollout_outputs[start:end]
+
+                    if len(batch_outputs) == 0:
+                        continue
+
                     tokenized = tokenize_prompt_and_output(
                         [r1_zero_prompt(q) for q in batch_prompts],
                         batch_outputs,
                         tokenizer,
                     )
                     all_tokenized.append(tokenized)
-                
+
                 max_seq_len = max(t["input_ids"].size(1) for t in all_tokenized)
-                
                 old_log_probs = []
                 for tokenized in all_tokenized:
                     input_ids = tokenized["input_ids"]
@@ -135,13 +139,14 @@ def grpo_train_loop(
                     if pad_len > 0:
                         input_ids = torch.nn.functional.pad(input_ids, (0, pad_len), value=tokenizer.pad_token_id)
                         labels = torch.nn.functional.pad(labels, (0, pad_len), value=tokenizer.pad_token_id)
-                    
-                    batch_old_log_probs = get_response_log_probs(
+
+                    lp = get_response_log_probs(
                         policy,
                         input_ids.to(device),
                         labels.to(device),
                     )["log_probs"].detach()
-                    old_log_probs.append(batch_old_log_probs)
+                    old_log_probs.append(lp)
+
                 old_log_probs = torch.cat(old_log_probs, dim=0)
         else:
             old_log_probs = None
