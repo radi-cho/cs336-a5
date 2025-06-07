@@ -69,7 +69,7 @@ def grpo_train_loop(
         temperature=sampling_temperature,
         min_tokens=sampling_min_tokens,
         max_tokens=sampling_max_tokens,
-        stop=["</think>", "</answer>"],
+        stop=["</answer>"],
         include_stop_str_in_output=True,
     )
     optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
