@@ -11,7 +11,6 @@ from cs336_alignment.response_logprobs import get_response_log_probs
 
 
 def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: float = 0.2):
-    world_size_patch = patch("torch.distributed.get_world_size", return_value=1)
     profiling_patch = patch(
         "vllm.worker.worker.Worker._assert_memory_footprint_increased_during_profiling",
         return_value=None
@@ -72,6 +71,9 @@ def grpo_train_loop(
     )
     optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
 
+    # Initialize vllm once at the start
+    llm = init_vllm(policy.config._name_or_path, device, seed, gpu_memory_utilization)
+
     def sample_rollouts(prompts: List[str], llm: LLM) -> List[str]:
         outputs = []
         for i in range(0, len(prompts), n_prompts_per_rollout_batch):
@@ -80,8 +82,7 @@ def grpo_train_loop(
             outputs.extend([r.outputs[0].text for r in results])
         return outputs
 
-    def compute_validation_reward(model, prompts: List[str], reward_fn: Callable[[str, str], Dict[str, float]], prompt_template: str) -> float:
-        llm = init_vllm(model.config._name_or_path, device, seed, gpu_memory_utilization)
+    def compute_validation_reward(model, prompts: List[str], reward_fn: Callable[[str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
         load_policy_into_vllm_instance(model, llm)
         formatted = [prompt_template(q) for q in prompts]
         with torch.inference_mode():
@@ -92,7 +93,6 @@ def grpo_train_loop(
         return total / len(prompts)
 
     for step in range(1, n_grpo_steps + 1):
-        llm = init_vllm(policy.config._name_or_path, device, seed, gpu_memory_utilization)
         load_policy_into_vllm_instance(policy, llm)
 
         rollout_prompts = train_questions[:rollout_batch_size]
@@ -115,7 +115,7 @@ def grpo_train_loop(
                 all_tokenized = []
                 for i in range(n_microbatches_per_rollout_batch):
                     start = i * micro_train_batch_size
-                    end   = min(start + micro_train_batch_size, rollout_batch_size)  # don’t overshoot
+                    end = min(start + micro_train_batch_size, rollout_batch_size)
 
                     batch_prompts = rollout_prompts[start:end]
                     batch_outputs = rollout_outputs[start:end]
@@ -196,13 +196,9 @@ def grpo_train_loop(
                 policy_log_probs = res["log_probs"].to(device)
 
                 if old_log_probs is None:
-                    print("old_log_probs is None")
                     batch_old_log_probs = policy_log_probs.detach()
                 else:
-                    print(old_log_probs.shape)
                     batch_old_log_probs = old_log_probs[start:end].to(device)
-
-                print("b", batch_old_log_probs.shape)
 
                 ra = batch_raw_rewards if loss_type == "no_baseline" else None
                 adv = batch_advantages if loss_type in {"reinforce_with_baseline", "grpo_clip"} else None
@@ -218,13 +214,15 @@ def grpo_train_loop(
                     cliprange=cliprange,
                 )
 
+                print(micro_loss)
+
                 if (i + 1) % gradient_accumulation_steps == 0:
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad()
 
         if step % 10 == 0:
-            val_reward = compute_validation_reward(policy, validation_questions, r1_zero_reward_fn, r1_zero_prompt)
+            val_reward = compute_validation_reward(policy, validation_questions, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Answer Reward = {val_reward:.4f}")
 
 if __name__ == "__main__":
