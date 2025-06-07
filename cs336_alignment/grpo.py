@@ -157,6 +157,9 @@ def grpo_train_loop(
                 batch_raw_rewards = raw_rewards[start:end].unsqueeze(1).to(device)
                 batch_old_log_probs = old_log_probs[start:end].to(device) if old_log_probs is not None else None
 
+                if len(batch_outputs) == 0:
+                    continue
+
                 tokenized = tokenize_prompt_and_output(
                     [r1_zero_prompt(q) for q in batch_prompts],
                     batch_outputs,
