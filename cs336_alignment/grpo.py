@@ -160,7 +160,6 @@ def grpo_train_loop(
                 batch_outputs = rollout_outputs[start:end]
                 batch_advantages = advantages[start:end].to(device)
                 batch_raw_rewards = raw_rewards[start:end].unsqueeze(1).to(device)
-                batch_old_log_probs = old_log_probs[start:end].to(device) if old_log_probs is not None else None
 
                 if len(batch_outputs) == 0:
                     continue
@@ -174,8 +173,8 @@ def grpo_train_loop(
                 labels = tokenized["labels"].to(device)
                 response_mask = tokenized["response_mask"].to(device)
 
-                if batch_old_log_probs is not None:
-                    pad_len = batch_old_log_probs.size(1) - input_ids.size(1)
+                if old_log_probs is not None:
+                    pad_len = old_log_probs.size(1) - input_ids.size(1)
                     if pad_len > 0:
                         input_ids = torch.nn.functional.pad(input_ids, (0, pad_len), value=tokenizer.pad_token_id)
                         labels = torch.nn.functional.pad(labels, (0, pad_len), value=tokenizer.pad_token_id)
@@ -184,6 +183,11 @@ def grpo_train_loop(
                 policy.train()
                 res = get_response_log_probs(policy, input_ids, labels)
                 policy_log_probs = res["log_probs"].to(device)
+
+                if loss_type == "grpo_clip" and old_log_probs is None:
+                    batch_old_log_probs = policy_log_probs.detach()
+                else:
+                    batch_old_log_probs = old_log_probs[start:end].to(device) if old_log_probs is not None else None
 
                 ra = batch_raw_rewards if loss_type == "no_baseline" else None
                 adv = batch_advantages if loss_type in {"reinforce_with_baseline", "grpo_clip"} else None
