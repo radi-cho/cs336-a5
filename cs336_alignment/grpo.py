@@ -47,6 +47,10 @@ def train_grpo(
 
     wandb.init(project="cs336-a5-2", entity="radi-cho")
     
+    wandb.define_metric("step")
+    wandb.define_metric("train/*", step_metric="step")
+    wandb.define_metric("eval/*", step_metric="step")
+    
     with open(train_data_path, "r") as f:
         train_data = [json.loads(line) for line in f]
     
@@ -205,7 +209,9 @@ def train_grpo(
             print(f"Eval Accuracy: {accuracy:.2%}")
             wandb.log({
                 "eval/accuracy": accuracy,
-                "eval_step": step
+                "eval/format_reward": sum(1 for r in eval_results if r["score"]["format_reward"] == 1.0) / len(eval_results),
+                "eval/answer_reward": sum(1 for r in eval_results if r["score"]["answer_reward"] == 1.0) / len(eval_results),
+                "step": step
             })
             
             del eval_vllm
