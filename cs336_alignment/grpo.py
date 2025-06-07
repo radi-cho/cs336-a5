@@ -232,7 +232,7 @@ def grpo_train_loop(
                         response_mask = torch.nn.functional.pad(response_mask, (0, pad_len), value=0)
 
                 policy.train()
-                print(f"Max seq len: {input_ids.size(1)}")
+                # print(f"Max seq len: {input_ids.size(1)}")
                 res = get_response_log_probs(policy, input_ids, labels)
                 policy_log_probs = res["log_probs"].to(device)
 
@@ -261,7 +261,7 @@ def grpo_train_loop(
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad()
-                    print(f"Step {step}, Loss: {loss.item():.4f}")
+                    # print(f"Step {step}, Loss: {loss.item():.4f}")
                     wandb.log({
                         "train/loss": loss.item(),
                         "train/step": step,
@@ -328,13 +328,13 @@ if __name__ == "__main__":
             validation_data.append((example["problem"], example["answer"]))
 
     n_grpo_steps = 200
-    rollout_batch_size = 256
+    rollout_batch_size = 64
     group_size = 8
     sampling_temperature = 1.0
     sampling_min_tokens = 4
     sampling_max_tokens = 1024
     epochs_per_rollout_batch = 1
-    train_batch_size = 256
+    train_batch_size = 128
     gradient_accumulation_steps = 256
     gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
