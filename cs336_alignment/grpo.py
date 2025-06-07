@@ -11,6 +11,7 @@ from cs336_alignment.response_logprobs import get_response_log_probs
 
 
 def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: float = 0.2):
+    world_size_patch = patch("torch.distributed.get_world_size", return_value=1)
     profiling_patch = patch(
         "vllm.worker.worker.Worker._assert_memory_footprint_increased_during_profiling",
         return_value=None
