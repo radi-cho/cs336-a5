@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Literal
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM, SamplingParams
+
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
 from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 from cs336_alignment.entropy import compute_entropy
 from cs336_alignment.evaluate_vllm import evaluate_vllm
+from cs336_alignment.tokenize_prompt_and_output import tokenize_prompt_and_output
 
 
 def load_prompt_template():
@@ -92,18 +94,24 @@ def train_grpo(
     try:
         for step in range(n_grpo_steps):
             print(f"\n=== GRPO Step {step+1}/{n_grpo_steps} ===")
-            
             batch_data = train_data[step * n_prompts_per_rollout_batch:(step + 1) * n_prompts_per_rollout_batch]
-            prompts = [prompt_template.replace("{question}", p["problem"]) for p in batch_data]
-            rollout_outputs = vllm_engine.generate(prompts, sampling_params, use_tqdm=False)
-            
+            prompts = []
+            ground_truths = []
+            for p in batch_data:
+                prompts.append(prompt_template.replace("{question}", p["problem"]))
+                ground_truths.append(p["answer"])
+
             rollout_responses = []
             repeated_ground_truths = []
-            for output, p in zip(rollout_outputs, batch_data):
-                for text in output.outputs:
-                    rollout_responses.append(text.text)
-                    repeated_ground_truths.append(p["answer"])
-            
+            for i in range(0, len(prompts), group_size):
+                group_prompts = prompts[i:i+group_size]
+                group_truths = ground_truths[i:i+group_size]
+                outputs = vllm_engine.generate(group_prompts, sampling_params, use_tqdm=False)
+                for output, truth in zip(outputs, group_truths):
+                    for text in output.outputs:
+                        rollout_responses.append(text.text)
+                        repeated_ground_truths.append(truth)
+
             advantages, raw_rewards, reward_meta = compute_group_normalized_rewards(
                 r1_zero_reward_fn,
                 rollout_responses,
@@ -112,79 +120,75 @@ def train_grpo(
                 advantage_eps,
                 use_std_normalization,
             )
-            
+
+            ids = tokenize_prompt_and_output(prompts, rollout_responses, tokenizer)
+            input_ids = ids["input_ids"].to(device)
+            labels = ids["labels"].to(device)
+            response_mask = ids["response_mask"].to(device)
+
+            advantages = advantages.to(device)
+            raw_rewards = raw_rewards.to(device)
+
             old_log_probs_cpu = None
             if loss_type == "grpo_clip":
                 old_log_probs_list = []
-                for response in rollout_responses:
-                    enc = tokenizer(response, return_tensors="pt", truncation=True)
-                    input_ids = enc.input_ids.to(device)
-                    attn_mask = enc.attention_mask.to(device)
+                for i in range(len(rollout_responses)):
+                    enc = tokenizer(rollout_responses[i], return_tensors="pt", truncation=True)
+                    input_ids_ = enc.input_ids.to(device)
+                    attn_mask_ = enc.attention_mask.to(device)
                     with torch.no_grad():
-                        logits = model(input_ids=input_ids, attention_mask=attn_mask).logits
+                        logits = model(input_ids=input_ids_, attention_mask=attn_mask_).logits
                         log_probs = torch.log_softmax(logits, dim=-1)
-                        tok_lp = log_probs.gather(
-                            dim=-1, index=input_ids.unsqueeze(-1)
-                        ).squeeze(-1)
+                        tok_lp = log_probs.gather(dim=-1, index=input_ids_.unsqueeze(-1)).squeeze(-1)
                     old_log_probs_list.append(tok_lp.cpu())
                 old_log_probs_cpu = torch.stack(old_log_probs_list)
-            
+
+            n_microbatches = input_ids.size(0) // micro_train_batch_size
             for epoch in range(epochs_per_rollout_batch):
                 model.train()
                 total_loss = 0.0
                 total_entropy = 0.0
                 total_clip_frac = 0.0
-
-                for micro_idx in range(n_microbatches_per_rollout_batch):
+                for micro_idx in range(n_microbatches):
                     st = micro_idx * micro_train_batch_size
                     ed = st + micro_train_batch_size
-
-                    responses = rollout_responses[st:ed]
-                    adv_slice = advantages[st:ed]
-                    old_lp_slice = (
-                        old_log_probs_cpu[st:ed].to(device)
-                        if old_log_probs_cpu is not None else None
+                    micro_input_ids = input_ids[st:ed]
+                    micro_labels = labels[st:ed]
+                    micro_response_mask = response_mask[st:ed]
+                    micro_advantages = advantages[st:ed]
+                    micro_raw_rewards = raw_rewards[st:ed]
+                    micro_old_log_probs = (
+                        old_log_probs_cpu[st:ed].to(device) if old_log_probs_cpu is not None else None
                     )
-
-                    enc = tokenizer(responses, padding=True, truncation=True, return_tensors="pt")
-                    input_ids = enc.input_ids.to(device)
-                    attn_mask = enc.attention_mask.to(device)
-
-                    outputs = model(input_ids=input_ids, attention_mask=attn_mask)
+                    outputs = model(input_ids=micro_input_ids, attention_mask=(micro_input_ids != tokenizer.pad_token_id))
                     logits = outputs.logits
                     log_probs = torch.log_softmax(logits, dim=-1)
-                    tok_lp = log_probs.gather(dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)
-
-                    adv_gpu = adv_slice.to(device).unsqueeze(-1).expand(-1, tok_lp.size(1))
-
+                    tok_lp = log_probs.gather(dim=-1, index=micro_input_ids.unsqueeze(-1)).squeeze(-1)
+                    adv_gpu = micro_advantages.unsqueeze(-1).expand_as(tok_lp)
                     micro_loss, meta = grpo_microbatch_train_step(
                         tok_lp,
-                        attn_mask,
+                        micro_response_mask,
                         gradient_accumulation_steps,
                         loss_type,
-                        raw_rewards=raw_rewards[st:ed],
+                        raw_rewards=micro_raw_rewards,
                         advantages=adv_gpu,
-                        old_log_probs=old_lp_slice,
+                        old_log_probs=micro_old_log_probs,
                         cliprange=0.2 if loss_type == "grpo_clip" else None,
                     )
-
                     total_loss += micro_loss.item() * gradient_accumulation_steps
                     total_entropy += compute_entropy(logits).mean().item()
                     if "is_clipped" in meta:
                         total_clip_frac += meta["is_clipped"].float().mean().item()
-
                     if (micro_idx + 1) % gradient_accumulation_steps == 0:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                         optimizer.step()
                         optimizer.zero_grad()
-
-                avg_loss = total_loss / n_microbatches_per_rollout_batch
-                avg_entropy = total_entropy / n_microbatches_per_rollout_batch
+                avg_loss = total_loss / n_microbatches
+                avg_entropy = total_entropy / n_microbatches
                 avg_clip_frac = (
-                    total_clip_frac / n_microbatches_per_rollout_batch
-                    if loss_type == "grpo_clip" else 0.0
+                    total_clip_frac / n_microbatches if loss_type == "grpo_clip" else 0.0
                 )
-                
+
                 wandb.log({
                     "train/loss": avg_loss,
                     "train/entropy": avg_entropy,
@@ -196,7 +200,6 @@ def train_grpo(
                     "step": step,
                     "epoch": epoch
                 })
-                
                 print(f"Step {step + 1}, Epoch {epoch + 1}")
                 print(f"Loss: {avg_loss:.4f}, Entropy: {avg_entropy:.4f}")
                 if loss_type == "grpo_clip":
@@ -215,6 +218,7 @@ def train_grpo(
                     (prompt_template.replace("{question}", p["problem"]), p["answer"])
                     for p in eval_subset
                 ]
+
                 eval_results = evaluate_vllm(
                     vllm_engine,
                     r1_zero_reward_fn,
