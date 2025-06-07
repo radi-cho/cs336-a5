@@ -171,6 +171,8 @@ def grpo_train_loop(
                 all_tokenized.append(tokenized)
                 max_seq_len = max(max_seq_len, tokenized["input_ids"].size(1))
 
+            print(f"Max seq len: {max_seq_len}")
+
             for tokenized in all_tokenized:
                 input_ids = tokenized["input_ids"]
                 labels = tokenized["labels"]
@@ -327,14 +329,14 @@ if __name__ == "__main__":
             validation_data.append((example["problem"], example["answer"]))
 
     n_grpo_steps = 200
-    rollout_batch_size = 128
+    rollout_batch_size = 256
     group_size = 8
     sampling_temperature = 1.0
     sampling_min_tokens = 4
     sampling_max_tokens = 1024
     epochs_per_rollout_batch = 1
     train_batch_size = 256
-    gradient_accumulation_steps = 128
+    gradient_accumulation_steps = 256
     gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
     use_std_normalization = True
