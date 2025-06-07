@@ -1,5 +1,5 @@
 import torch
-from typing import List, Callable, Optional, Literal, Dict
+from typing import List, Callable, Literal, Dict
 from vllm import SamplingParams, LLM
 from unittest.mock import patch
 from transformers import PreTrainedModel
@@ -26,10 +26,12 @@ def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: flo
             gpu_memory_utilization=gpu_memory_utilization,
         )
 
+
 def load_policy_into_vllm_instance(policy: PreTrainedModel, llm: LLM):
     state_dict = policy.state_dict()
     llm_model = llm.llm_engine.model_executor.driver_worker.model_runner.model
     llm_model.load_weights(state_dict.items())
+
 
 def grpo_train_loop(
     policy: torch.nn.Module,
@@ -103,13 +105,21 @@ def grpo_train_loop(
     for step in range(1, n_grpo_steps + 1):
         load_policy_into_vllm_instance(policy, llm)
 
-        rollout_prompts = train_questions[:rollout_batch_size]
-        rollout_answers = train_answers[:rollout_batch_size]
-        formatted_prompts = [r1_zero_prompt(q) for q in rollout_prompts]
-        with torch.inference_mode():
-            rollout_outputs = sample_rollouts(formatted_prompts, llm)
+        rollout_prompts_unique = train_questions[:n_prompts_per_rollout_batch]
+        rollout_answers_unique = train_answers[:n_prompts_per_rollout_batch]
 
-        repeated_ground_truths = [s for s in rollout_answers for _ in range(group_size)]
+        repeated_prompts = []
+        for q in rollout_prompts_unique:
+            formatted = r1_zero_prompt(q)
+            repeated_prompts.extend([formatted] * group_size)
+
+        with torch.inference_mode():
+            rollout_outputs = sample_rollouts(repeated_prompts, llm)
+
+        repeated_ground_truths = []
+        for ans in rollout_answers_unique:
+            repeated_ground_truths.extend([ans] * group_size)
+
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
             r1_zero_reward_fn,
             rollout_outputs,
@@ -120,43 +130,43 @@ def grpo_train_loop(
         )
 
         if loss_type == "grpo_clip":
-            with torch.inference_mode():
-                all_tokenized = []
-                for i in range(n_microbatches_per_rollout_batch):
-                    start = i * micro_train_batch_size
-                    end = min(start + micro_train_batch_size, rollout_batch_size)
+            old_log_probs_list = []
+            max_seq_len = 0
+            all_tokenized = []
+            for i in range(n_microbatches_per_rollout_batch):
+                start = i * micro_train_batch_size
+                end = min(start + micro_train_batch_size, rollout_batch_size)
+                if start >= rollout_batch_size:
+                    continue
 
-                    batch_prompts = rollout_prompts[start:end]
-                    batch_outputs = rollout_outputs[start:end]
+                batch_indices = list(range(start, end))
+                batch_prompts = [repeated_prompts[idx] for idx in batch_indices]
+                batch_outputs = [rollout_outputs[idx] for idx in batch_indices]
 
-                    if len(batch_outputs) == 0:
-                        continue
+                tokenized = tokenize_prompt_and_output(
+                    batch_prompts,
+                    batch_outputs,
+                    tokenizer,
+                )
+                all_tokenized.append(tokenized)
+                max_seq_len = max(max_seq_len, tokenized["input_ids"].size(1))
 
-                    tokenized = tokenize_prompt_and_output(
-                        [r1_zero_prompt(q) for q in batch_prompts],
-                        batch_outputs,
-                        tokenizer,
-                    )
-                    all_tokenized.append(tokenized)
+            for tokenized in all_tokenized:
+                input_ids = tokenized["input_ids"]
+                labels = tokenized["labels"]
+                pad_len = max_seq_len - input_ids.size(1)
+                if pad_len > 0:
+                    input_ids = torch.nn.functional.pad(input_ids, (0, pad_len), value=tokenizer.pad_token_id)
+                    labels = torch.nn.functional.pad(labels, (0, pad_len), value=tokenizer.pad_token_id)
 
-                max_seq_len = max(t["input_ids"].size(1) for t in all_tokenized)
-                old_log_probs = []
-                for tokenized in all_tokenized:
-                    input_ids = tokenized["input_ids"]
-                    labels = tokenized["labels"]
-                    pad_len = max_seq_len - input_ids.size(1)
-                    if pad_len > 0:
-                        input_ids = torch.nn.functional.pad(input_ids, (0, pad_len), value=tokenizer.pad_token_id)
-                        labels = torch.nn.functional.pad(labels, (0, pad_len), value=tokenizer.pad_token_id)
+                lp = get_response_log_probs(
+                    policy,
+                    input_ids.to(device),
+                    labels.to(device),
+                )["log_probs"].detach()
+                old_log_probs_list.append(lp)
 
-                    lp = get_response_log_probs(
-                        policy,
-                        input_ids.to(device),
-                        labels.to(device),
-                    )["log_probs"].detach()
-                    old_log_probs.append(lp)
-
-                old_log_probs = torch.cat(old_log_probs, dim=0)
+            old_log_probs = torch.cat(old_log_probs_list, dim=0)
         else:
             old_log_probs = None
 
@@ -164,29 +174,23 @@ def grpo_train_loop(
             loss = 0.0
             for i in range(n_microbatches_per_rollout_batch):
                 start = i * micro_train_batch_size
-                end = start + micro_train_batch_size
-
+                end = min(start + micro_train_batch_size, rollout_batch_size)
                 if start >= rollout_batch_size:
                     break
 
-                end = min(end, rollout_batch_size)
-
-                group_start = start // group_size
-                group_end = (end - 1) // group_size + 1
-
-                if group_start >= group_end:
+                batch_indices = list(range(start, end))
+                batch_size_actual = end - start
+                if batch_size_actual == 0:
                     continue
 
-                batch_prompts = rollout_prompts[group_start:group_end]
-                batch_outputs = rollout_outputs[start:end]
+                question_indices = [idx // group_size for idx in batch_indices]
+                batch_prompts = [r1_zero_prompt(rollout_prompts_unique[qidx]) for qidx in question_indices]
+                batch_outputs = [rollout_outputs[idx] for idx in batch_indices]
                 batch_advantages = advantages[start:end].unsqueeze(1).to(device)
                 batch_raw_rewards = raw_rewards[start:end].unsqueeze(1).to(device)
 
-                if len(batch_outputs) == 0:
-                    continue
-
                 tokenized = tokenize_prompt_and_output(
-                    [r1_zero_prompt(q) for q in batch_prompts],
+                    batch_prompts,
                     batch_outputs,
                     tokenizer,
                 )
@@ -247,6 +251,7 @@ def grpo_train_loop(
 
     wandb.finish()
 
+
 if __name__ == "__main__":
     import json
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -260,7 +265,7 @@ if __name__ == "__main__":
     torch.manual_seed(42)
 
     with open("cs336_alignment/prompts/r1_zero.prompt") as f:
-        r1_zero_prompt = f.read()
+        r1_zero_prompt_template = f.read()
 
     train_data_path = "/data/a5-alignment/MATH/train.jsonl"
     eval_data_path = "/data/a5-alignment/MATH/validation.jsonl"
@@ -301,14 +306,7 @@ if __name__ == "__main__":
     wandb_project = "cs336-grpo"
 
     def format_prompt(question):
-        return r1_zero_prompt.replace("{question}", question)
-
-    optimizer = torch.optim.AdamW(
-        policy.parameters(),
-        lr=learning_rate,
-        weight_decay=0.0,
-        betas=(0.9, 0.95),
-    )
+        return r1_zero_prompt_template.replace("{question}", question)
 
     grpo_train_loop(
         policy=policy,
