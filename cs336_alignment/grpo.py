@@ -88,7 +88,7 @@ def train_grpo(
         prompts = [prompt_template.replace("{question}", p["problem"]) for p in batch_data]
         ground_truths = [p["answer"] for p in batch_data]
         
-        outputs = vllm_model.generate(prompts, sampling_params)
+        outputs = vllm_model.generate(prompts, sampling_params, use_tqdm=False)
         
         rollout_responses = []
         repeated_ground_truths = []
