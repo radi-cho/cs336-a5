@@ -215,7 +215,7 @@ def grpo_train_loop(
                     cliprange=cliprange,
                 )
 
-                print(micro_loss)
+                print(f"Step {step}, Microbatch {i}, Loss: {micro_loss.item():.4f}")
 
                 if (i + 1) % gradient_accumulation_steps == 0:
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)

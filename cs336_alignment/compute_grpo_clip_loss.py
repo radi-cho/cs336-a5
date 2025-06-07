@@ -31,6 +31,9 @@ def compute_grpo_clip_loss(
     metadata = {
         "is_clipped": is_clipped,
         "ratio": ratio,
+        "mean_ratio": ratio.mean().item(),
+        "mean_advantage": advantages.mean().item(),
+        "mean_loss": loss.mean().item(),
     }
 
     return loss, metadata
