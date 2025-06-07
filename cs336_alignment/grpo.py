@@ -77,7 +77,7 @@ def grpo_train_loop(
         for i in range(0, len(prompts), n_prompts_per_rollout_batch):
             batch = prompts[i : i + n_prompts_per_rollout_batch]
             results = llm.generate(batch, sampling_params=sampling_params)
-            outputs.extend([r.text for r in results])
+            outputs.extend([r.outputs[0].text for r in results])
         return outputs
 
     def compute_validation_reward(model, prompts: List[str], reward_fn: Callable[[str, str], Dict[str, float]], prompt_template: str) -> float:
