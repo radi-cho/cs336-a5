@@ -3,6 +3,7 @@ from typing import List, Callable, Optional, Literal, Dict
 from vllm import SamplingParams, LLM
 from unittest.mock import patch
 from transformers import PreTrainedModel
+import wandb
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
@@ -56,7 +57,10 @@ def grpo_train_loop(
     learning_rate: float,
     device: str,
     seed: int,
+    wandb_project: str = "cs336-grpo"
 ) -> None:
+    wandb.init(project=wandb_project)
+
     assert train_batch_size % gradient_accumulation_steps == 0
     micro_train_batch_size = train_batch_size // gradient_accumulation_steps
     assert rollout_batch_size % group_size == 0
@@ -227,11 +231,21 @@ def grpo_train_loop(
                     optimizer.step()
                     optimizer.zero_grad()
                     print(f"Step {step}, Loss: {loss.item():.4f}")
+                    wandb.log({
+                        "train/loss": loss.item(),
+                        "train/step": step,
+                    })
                     loss = 0.0
 
         if step % 10 == 0:
             val_reward = compute_validation_reward(policy, validation_questions, validation_answers, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Answer Reward = {val_reward:.4f}")
+            wandb.log({
+                "validation/reward": val_reward,
+                "validation/step": step,
+            })
+
+    wandb.finish()
 
 if __name__ == "__main__":
     import json
@@ -284,6 +298,7 @@ if __name__ == "__main__":
     learning_rate = 1e-5
     device = "cuda:0"
     seed = 42
+    wandb_project = "cs336-grpo"
 
     def format_prompt(question):
         return r1_zero_prompt.replace("{question}", question)
@@ -321,4 +336,5 @@ if __name__ == "__main__":
         learning_rate=learning_rate,
         device=device,
         seed=seed,
+        wandb_project=wandb_project
     )
