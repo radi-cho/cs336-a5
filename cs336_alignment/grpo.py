@@ -272,7 +272,7 @@ if __name__ == "__main__":
     epochs_per_rollout_batch = 1
     train_batch_size = 256
     gradient_accumulation_steps = 128
-    gpu_memory_utilization = 0.85
+    gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
     use_std_normalization = True
     advantage_eps = 1e-6
