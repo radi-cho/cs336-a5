@@ -155,6 +155,7 @@ def grpo_train_loop(
             old_log_probs = None
 
         for _ in range(epochs_per_rollout_batch):
+            loss = 0.0
             for i in range(n_microbatches_per_rollout_batch):
                 start = i * micro_train_batch_size
                 end = start + micro_train_batch_size
@@ -217,12 +218,14 @@ def grpo_train_loop(
                     cliprange=cliprange,
                 )
 
-                print(f"Step {step}, Microbatch {i}, Loss: {micro_loss.item():.4f}")
+                loss += micro_loss
 
                 if (i + 1) % gradient_accumulation_steps == 0:
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad()
+                    print(f"Step {step}, Loss: {loss.item():.4f}")
+                    loss = 0.0
 
         if step % 10 == 0:
             val_reward = compute_validation_reward(policy, validation_questions, validation_answers, r1_zero_reward_fn, r1_zero_prompt, llm)
