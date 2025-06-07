@@ -3,10 +3,8 @@ from typing import List, Callable, Optional, Literal, Dict
 from vllm import SamplingParams, LLM
 from unittest.mock import patch
 from transformers import PreTrainedModel
-from vllm.utils import set_random_seed as vllm_set_random_seed
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
-from cs336_alignment.compute_policy_gradient_loss import compute_policy_gradient_loss
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
 from cs336_alignment.tokenize_prompt_and_output import tokenize_prompt_and_output
 from cs336_alignment.response_logprobs import get_response_log_probs
