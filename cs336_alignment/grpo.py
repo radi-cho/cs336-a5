@@ -102,7 +102,6 @@ def grpo_train_loop(
         formatted_prompts = [r1_zero_prompt(q) for q in rollout_prompts]
         with torch.inference_mode():
             rollout_outputs = sample_rollouts(formatted_prompts, llm)
-            print(rollout_outputs)
 
         repeated_ground_truths = [s for s in rollout_answers for _ in range(group_size)]
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
