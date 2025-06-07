@@ -21,6 +21,7 @@ def compute_grpo_clip_loss(
     clipped_ratio = ratio.clamp(min=lower_bound, max=upper_bound)
 
     adv_broad = advantages.unsqueeze(1).expand(-1, sequence_length)
+    print(adv_broad.shape)
 
     term1 = ratio * adv_broad
     term2 = clipped_ratio * adv_broad
