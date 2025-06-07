@@ -171,8 +171,6 @@ def grpo_train_loop(
                 all_tokenized.append(tokenized)
                 max_seq_len = max(max_seq_len, tokenized["input_ids"].size(1))
 
-            print(f"Max seq len: {max_seq_len}")
-
             for tokenized in all_tokenized:
                 input_ids = tokenized["input_ids"]
                 labels = tokenized["labels"]
@@ -234,6 +232,7 @@ def grpo_train_loop(
                         response_mask = torch.nn.functional.pad(response_mask, (0, pad_len), value=0)
 
                 policy.train()
+                print(f"Max seq len: {input_ids.size(1)}")
                 res = get_response_log_probs(policy, input_ids, labels)
                 policy_log_probs = res["log_probs"].to(device)
 
