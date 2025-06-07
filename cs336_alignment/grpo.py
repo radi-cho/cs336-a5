@@ -97,20 +97,27 @@ def grpo_train_loop(
         prompts = [prompt_template(q) for q, _ in validation_data]
         with torch.inference_mode():
             preds = sample_rollouts(prompts, llm)
-        total = 0.0
+        total_reward = 0.0
+        total_accuracy = 0.0
         
         with open("validation_rollouts.txt", "a") as f:
             f.write(f"\n=== New Validation Run ===\n")
             for (q, s), o in zip(validation_data, preds):
-                reward = reward_fn(o, s)["reward"]
-                total += reward
+                reward_dict = reward_fn(o, s)
+                reward = reward_dict["reward"]
+                answer_reward = reward_dict["answer_reward"]
+                total_reward += reward
+                total_accuracy += answer_reward
                 f.write(f"Question: {q}\n")
                 f.write(f"Ground Truth: {s}\n")
                 f.write(f"Model Output: {o}\n")
                 f.write(f"Reward: {reward:.4f}\n")
+                f.write(f"Answer Accuracy: {answer_reward:.4f}\n")
                 f.write("-" * 80 + "\n")
 
-        return total / len(validation_data)
+        avg_reward = total_reward / len(validation_data)
+        avg_accuracy = total_accuracy / len(validation_data)
+        return avg_reward, avg_accuracy
 
     for step in range(1, n_grpo_steps + 1):
         load_policy_into_vllm_instance(policy, llm)
@@ -252,10 +259,11 @@ def grpo_train_loop(
                     loss = 0.0
 
         if step % 10 == 0:
-            val_reward = compute_validation_reward(policy, validation_data, r1_zero_reward_fn, r1_zero_prompt, llm)
-            print(f"Step {step}: Validation Reward = {val_reward:.4f}")
+            val_reward, val_accuracy = compute_validation_reward(policy, validation_data, r1_zero_reward_fn, r1_zero_prompt, llm)
+            print(f"Step {step}: Validation Reward = {val_reward:.4f}, Validation Accuracy = {val_accuracy:.4f}")
             wandb.log({
                 "validation/reward": val_reward,
+                "validation/accuracy": val_accuracy,
                 "validation/step": step,
             })
 
