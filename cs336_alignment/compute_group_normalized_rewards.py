@@ -30,7 +30,7 @@ def compute_group_normalized_rewards(
     metadata = {
         "group_means": group_means,
     }
-    
+
     if normalize_by_std:
         metadata["group_stds"] = group_stds
     
