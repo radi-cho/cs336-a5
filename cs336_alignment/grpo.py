@@ -249,6 +249,8 @@ def grpo_train_loop(
                 "validation/step": step,
             })
 
+            optimizer.zero_grad()
+
     wandb.finish()
 
 
