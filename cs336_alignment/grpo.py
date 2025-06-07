@@ -69,7 +69,7 @@ def grpo_train_loop(
         temperature=sampling_temperature,
         min_tokens=sampling_min_tokens,
         max_tokens=sampling_max_tokens,
-        stop=["</answer>"],
+        stop=["</think>", "</answer>"],
         include_stop_str_in_output=True,
     )
     optimizer = torch.optim.AdamW(policy.parameters(), lr=learning_rate)
@@ -103,6 +103,8 @@ def grpo_train_loop(
         formatted_prompts = [r1_zero_prompt(q) for q in rollout_prompts]
         with torch.inference_mode():
             rollout_outputs = sample_rollouts(formatted_prompts, llm)
+            print(rollout_outputs)
+            raise
 
         repeated_ground_truths = [s for s in rollout_answers for _ in range(group_size)]
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
@@ -173,7 +175,7 @@ def grpo_train_loop(
 
                 batch_prompts = rollout_prompts[group_start:group_end]
                 batch_outputs = rollout_outputs[start:end]
-                batch_advantages = advantages[start:end].to(device)
+                batch_advantages = advantages[start:end].unsqueeze(1).to(device)
                 batch_raw_rewards = raw_rewards[start:end].unsqueeze(1).to(device)
 
                 if len(batch_outputs) == 0:
