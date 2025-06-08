@@ -6,7 +6,6 @@ from transformers import PreTrainedModel
 import wandb
 import random
 import gc
-from tqdm import tqdm
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
@@ -85,13 +84,13 @@ def grpo_train_loop(
     llm = init_vllm(policy.config._name_or_path, device, seed, gpu_memory_utilization)
 
     def sample_rollouts(prompts: List[str], llm: LLM) -> List[str]:
-        vllm_outputs = llm.generate(prompts, sampling_params=sampling_params)
-        outputs = []
-        for vout in vllm_outputs:
-            for out in vout.outputs:
-                outputs.append(out.text)
-
-        return outputs
+        with torch.no_grad():
+            vllm_outputs = llm.generate(prompts, sampling_params=sampling_params)
+            outputs = []
+            for vout in vllm_outputs:
+                for out in vout.outputs:
+                    outputs.append(out.text)
+            return outputs
 
     def compute_validation_reward(model, validation_data: List[tuple], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
         load_policy_into_vllm_instance(model, llm)
@@ -153,7 +152,7 @@ def grpo_train_loop(
             old_log_probs_list = []
             max_seq_len = 0
             all_tokenized = []
-            for i in tqdm(range(n_microbatches_per_rollout_batch)):
+            for i in range(n_microbatches_per_rollout_batch):
                 start = i * micro_train_batch_size
                 end = min(start + micro_train_batch_size, rollout_batch_size)
                 if start >= rollout_batch_size:
