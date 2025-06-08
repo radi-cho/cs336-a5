@@ -338,7 +338,8 @@ if __name__ == "__main__":
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
     loss_type = "reinforce_with_baseline"
-    use_std_normalization = True
+    use_std_normalization = False
+    # use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
     learning_rate = 1e-5
