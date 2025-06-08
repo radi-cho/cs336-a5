@@ -1,7 +1,8 @@
 import torch
 from typing import Literal, Optional
 from cs336_alignment.compute_policy_gradient_loss import compute_policy_gradient_loss
-from cs336_alignment.masked_mean import masked_mean
+# from cs336_alignment.masked_mean import masked_mean
+from cs336_alignment.masked_normalize import masked_normalize
 
 
 def grpo_microbatch_train_step(
@@ -22,7 +23,7 @@ def grpo_microbatch_train_step(
         old_log_probs=old_log_probs,
         cliprange=cliprange,
     )
-    per_example_loss = masked_mean(per_token_loss, response_mask, dim=1)
+    per_example_loss = masked_normalize(per_token_loss, response_mask, dim=1)
     batch_loss = per_example_loss.mean()
     microbatch_loss = batch_loss / gradient_accumulation_steps
     microbatch_loss.backward()
