@@ -341,7 +341,7 @@ if __name__ == "__main__":
     use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
-    learning_rate = 1e-5
+    learning_rate = 1e-6
     device = "cuda:0"
     seed = 42
     wandb_project = "cs336-grpo"
