@@ -276,7 +276,7 @@ def grpo_train_loop(
                 torch.cuda.empty_cache()
                 gc.collect()
 
-        if step % 10 == 0:
+        if step % 5 == 0:
             val_reward, val_accuracy = compute_validation_reward(policy, validation_data, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Reward = {val_reward:.4f}, Validation Accuracy = {val_accuracy:.4f}")
             wandb.log({
@@ -327,17 +327,17 @@ if __name__ == "__main__":
             example = json.loads(line)
             validation_data.append((example["problem"], example["answer"]))
 
-    n_grpo_steps = 200
+    n_grpo_steps = 20
     rollout_batch_size = 256
     group_size = 8
     sampling_temperature = 1.0
     sampling_min_tokens = 4
     sampling_max_tokens = 512
-    epochs_per_rollout_batch = 1
-    train_batch_size = 256
+    epochs_per_rollout_batch = 1 # 2, 3
+    train_batch_size = 256 # 128, 64
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
-    loss_type = "reinforce_with_baseline"
+    loss_type = "grpo_clip"
     use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
@@ -372,34 +372,6 @@ if __name__ == "__main__":
         advantage_eps=advantage_eps,
         cliprange=cliprange,
         learning_rate=learning_rate,
-        device=device,
-        seed=seed,
-        wandb_project=wandb_project
-    )
-
-    grpo_train_loop(
-        policy=policy,
-        tokenizer=tokenizer,
-        train_questions=train_questions,
-        train_answers=train_answers,
-        validation_data=validation_data,
-        r1_zero_prompt=format_prompt,
-        r1_zero_reward_fn=r1_zero_reward_fn,
-        n_grpo_steps=n_grpo_steps,
-        rollout_batch_size=rollout_batch_size,
-        group_size=group_size,
-        sampling_temperature=sampling_temperature,
-        sampling_min_tokens=sampling_min_tokens,
-        sampling_max_tokens=sampling_max_tokens,
-        epochs_per_rollout_batch=epochs_per_rollout_batch,
-        train_batch_size=train_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        gpu_memory_utilization=gpu_memory_utilization,
-        loss_type=loss_type,
-        use_std_normalization=use_std_normalization,
-        advantage_eps=advantage_eps,
-        cliprange=cliprange,
-        learning_rate=1e-6,
         device=device,
         seed=seed,
         wandb_project=wandb_project
