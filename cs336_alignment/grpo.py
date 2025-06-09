@@ -302,7 +302,7 @@ if __name__ == "__main__":
     from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, required=True, help="Training batch size (256, 128, or 64)")
+    parser.add_argument("--loss_type", type=str, required=True, choices=["grpo_no_clip", "grpo_clip"], help="Type of loss to use")
     args = parser.parse_args()
 
     assert args.batch_size in [256, 128, 64], "batch_size must be 256, 128, or 64"
@@ -342,10 +342,10 @@ if __name__ == "__main__":
     sampling_min_tokens = 4
     sampling_max_tokens = 512
     epochs_per_rollout_batch = 1
-    train_batch_size = args.batch_size
+    train_batch_size = 256
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
-    loss_type = "grpo_clip"
+    loss_type = args.loss_type
     use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
