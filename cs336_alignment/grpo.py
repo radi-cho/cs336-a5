@@ -245,7 +245,7 @@ def grpo_train_loop(
                     batch_old_log_probs = old_log_probs[start:end].to(device)
 
                 ra = batch_raw_rewards if loss_type == "no_baseline" else None
-                adv = batch_advantages if loss_type in {"reinforce_with_baseline", "grpo_clip"} else None
+                adv = batch_advantages if loss_type in {"reinforce_with_baseline", "grpo_clip", "grpo_no_clip"} else None
 
                 micro_loss, _ = grpo_microbatch_train_step(
                     policy_log_probs,
