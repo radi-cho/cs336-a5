@@ -306,8 +306,6 @@ if __name__ == "__main__":
     parser.add_argument("--loss_type", type=str, required=True, choices=["grpo_no_clip", "grpo_clip"], help="Type of loss to use")
     args = parser.parse_args()
 
-    assert args.batch_size in [256, 128, 64], "batch_size must be 256, 128, or 64"
-
     model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
     policy = AutoModelForCausalLM.from_pretrained(model_id, local_files_only=True).to("cuda:0")
     tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
