@@ -66,6 +66,7 @@ def grpo_train_loop(
 ) -> None:
     wandb.init(project=wandb_project)
 
+    print(f"train_batch_size: {train_batch_size}, gradient_accumulation_steps: {gradient_accumulation_steps}")
     assert train_batch_size % gradient_accumulation_steps == 0
     micro_train_batch_size = train_batch_size // gradient_accumulation_steps
     assert rollout_batch_size % group_size == 0
