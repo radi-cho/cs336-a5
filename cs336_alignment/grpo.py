@@ -7,6 +7,7 @@ import wandb
 import random
 import gc
 from tqdm import tqdm
+import argparse
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
@@ -277,7 +278,7 @@ def grpo_train_loop(
                 torch.cuda.empty_cache()
                 gc.collect()
 
-        if step % 5 == 0:
+        if step % 4 == 0:
             val_reward, val_accuracy = compute_validation_reward(policy, validation_data, r1_zero_reward_fn, r1_zero_prompt, llm)
             print(f"Step {step}: Validation Reward = {val_reward:.4f}, Validation Accuracy = {val_accuracy:.4f}")
             wandb.log({
@@ -299,6 +300,15 @@ if __name__ == "__main__":
     import json
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--epochs", type=int, required=True, help="Number of epochs per rollout batch (1, 2, or 3)")
+    parser.add_argument("--batch_size", type=int, required=True, help="Training batch size (256, 128, or 64)")
+    parser.add_argument("--job_id", type=int, required=True, help="Job ID for unique experiment naming")
+    args = parser.parse_args()
+
+    assert args.epochs in [1, 2, 3], "epochs must be 1, 2, or 3"
+    assert args.batch_size in [256, 128, 64], "batch_size must be 256, 128, or 64"
 
     model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
     policy = AutoModelForCausalLM.from_pretrained(model_id).to("cuda:0")
@@ -328,14 +338,14 @@ if __name__ == "__main__":
             example = json.loads(line)
             validation_data.append((example["problem"], example["answer"]))
 
-    n_grpo_steps = 20
+    n_grpo_steps = 16
     rollout_batch_size = 256
     group_size = 8
     sampling_temperature = 1.0
     sampling_min_tokens = 4
     sampling_max_tokens = 512
-    epochs_per_rollout_batch = 1 # 2, 3
-    train_batch_size = 256 # 128, 64
+    epochs_per_rollout_batch = args.epochs
+    train_batch_size = args.batch_size
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
     loss_type = "grpo_clip"
@@ -345,7 +355,7 @@ if __name__ == "__main__":
     learning_rate = 1e-5
     device = "cuda:0"
     seed = 42
-    wandb_project = "cs336-grpo"
+    wandb_project = f"cs336-grpo-{args.job_id}"
 
     def format_prompt(question):
         return r1_zero_prompt_template.replace("{question}", question)
