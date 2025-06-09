@@ -304,7 +304,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, required=True, help="Number of epochs per rollout batch (1, 2, or 3)")
     parser.add_argument("--batch_size", type=int, required=True, help="Training batch size (256, 128, or 64)")
-    parser.add_argument("--job_id", type=int, required=True, help="Job ID for unique experiment naming")
     args = parser.parse_args()
 
     assert args.epochs in [1, 2, 3], "epochs must be 1, 2, or 3"
@@ -355,7 +354,7 @@ if __name__ == "__main__":
     learning_rate = 1e-5
     device = "cuda:0"
     seed = 42
-    wandb_project = f"cs336-grpo-off-{args.job_id}"
+    wandb_project = f"cs336-grpo-off"
 
     def format_prompt(question):
         return r1_zero_prompt_template.replace("{question}", question)
