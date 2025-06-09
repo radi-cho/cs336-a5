@@ -28,7 +28,7 @@ echo "epochs_per_rollout_batch: $epochs_per_rollout_batch"
 echo "train_batch_size: $train_batch_size"
 echo "job_id: $SLURM_ARRAY_TASK_ID"
 
-python cs336_alignment/grpo.py \
+uv run cs336_alignment/grpo.py \
     --epochs $epochs_per_rollout_batch \
     --batch_size $train_batch_size \
     --job_id $SLURM_ARRAY_TASK_ID 
