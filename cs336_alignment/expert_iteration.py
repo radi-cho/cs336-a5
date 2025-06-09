@@ -122,7 +122,7 @@ def run_expert_iteration(
         )
         vllm_gen = LLM(model=model_id, gpu_memory_utilization=0.2)
         gen_results = vllm_gen.generate(prompts, sampling)
-        vllm_gen.shutdown()
+        del vllm_gen
 
         sft_data = []
         for idx, result in enumerate(gen_results):
