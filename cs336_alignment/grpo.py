@@ -310,8 +310,8 @@ if __name__ == "__main__":
     assert args.batch_size in [256, 128, 64], "batch_size must be 256, 128, or 64"
 
     model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
-    policy = AutoModelForCausalLM.from_pretrained(model_id).to("cuda:0")
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    policy = AutoModelForCausalLM.from_pretrained(model_id, local_files_only=True).to("cuda:0")
+    tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
     torch.manual_seed(42)
