@@ -1,11 +1,11 @@
 import torch
 from typing import Literal, Optional, Tuple, Dict
 from cs336_alignment.compute_naive_policy_gradient_loss import compute_naive_policy_gradient_loss
-from cs336_alignment.compute_grpo_clip_loss import compute_grpo_clip_loss
+from cs336_alignment.compute_grpo_clip_loss import compute_grpo_clip_loss, compute_grpo_no_clip_loss
 
 def compute_policy_gradient_loss(
     policy_log_probs: torch.Tensor,
-    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],
+    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"],
     raw_rewards: Optional[torch.Tensor] = None,
     advantages: Optional[torch.Tensor] = None,
     old_log_probs: Optional[torch.Tensor] = None,
@@ -29,7 +29,14 @@ def compute_policy_gradient_loss(
             old_log_probs,
             cliprange
         )
+        metadata = grpo_metadata
 
+    elif loss_type == "grpo_no_clip":
+        loss, grpo_metadata = compute_grpo_no_clip_loss(
+            advantages,
+            policy_log_probs,
+            old_log_probs
+        )
         metadata = grpo_metadata
 
     return loss, metadata

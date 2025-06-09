@@ -55,7 +55,7 @@ def grpo_train_loop(
     train_batch_size: int,
     gradient_accumulation_steps: int,
     gpu_memory_utilization: float,
-    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],
+    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"],
     use_std_normalization: bool,
     advantage_eps: float,
     cliprange: float,
@@ -302,11 +302,9 @@ if __name__ == "__main__":
     from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, required=True, help="Number of epochs per rollout batch (1, 2, or 3)")
     parser.add_argument("--batch_size", type=int, required=True, help="Training batch size (256, 128, or 64)")
     args = parser.parse_args()
 
-    assert args.epochs in [1, 2, 3], "epochs must be 1, 2, or 3"
     assert args.batch_size in [256, 128, 64], "batch_size must be 256, 128, or 64"
 
     model_id = "/data/a5-alignment/models/Qwen2.5-Math-1.5B"
@@ -337,13 +335,13 @@ if __name__ == "__main__":
             example = json.loads(line)
             validation_data.append((example["problem"], example["answer"]))
 
-    n_grpo_steps = 16
+    n_grpo_steps = 200
     rollout_batch_size = 256
     group_size = 8
     sampling_temperature = 1.0
     sampling_min_tokens = 4
     sampling_max_tokens = 512
-    epochs_per_rollout_batch = args.epochs
+    epochs_per_rollout_batch = 1
     train_batch_size = args.batch_size
     gradient_accumulation_steps = 128
     gpu_memory_utilization = 0.2
@@ -351,7 +349,7 @@ if __name__ == "__main__":
     use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
-    learning_rate = 1e-5
+    learning_rate = 1e-6
     device = "cuda:0"
     seed = 42
     wandb_project = f"cs336-grpo-off"
