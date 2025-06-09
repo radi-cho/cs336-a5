@@ -6,6 +6,7 @@ from transformers import PreTrainedModel
 import wandb
 import random
 import gc
+from tqdm import tqdm
 
 from cs336_alignment.compute_group_normalized_rewards import compute_group_normalized_rewards
 from cs336_alignment.grpo_microbatch_train_step import grpo_microbatch_train_step
@@ -152,7 +153,7 @@ def grpo_train_loop(
             old_log_probs_list = []
             max_seq_len = 0
             all_tokenized = []
-            for i in range(n_microbatches_per_rollout_batch):
+            for i in tqdm(range(n_microbatches_per_rollout_batch)):
                 start = i * micro_train_batch_size
                 end = min(start + micro_train_batch_size, rollout_batch_size)
                 if start >= rollout_batch_size:
@@ -171,7 +172,7 @@ def grpo_train_loop(
                 all_tokenized.append(tokenized)
                 max_seq_len = max(max_seq_len, tokenized["input_ids"].size(1))
 
-            for tokenized in all_tokenized:
+            for tokenized in tqdm(all_tokenized):
                 input_ids = tokenized["input_ids"]
                 labels = tokenized["labels"]
                 pad_len = max_seq_len - input_ids.size(1)
