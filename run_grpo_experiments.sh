@@ -1,6 +1,7 @@
 #!/bin/bash
 
-loss_types=("grpo_no_clip" "grpo_clip")
+# loss_types=("grpo_no_clip" "grpo_clip")
+loss_types=("grpo_no_clip")
 
 for loss_type in "${loss_types[@]}"; do
     echo "Submitting job with:"
