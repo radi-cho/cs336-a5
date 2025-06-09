@@ -94,7 +94,7 @@ def grpo_train_loop(
 
     def compute_validation_reward(model, validation_data: List[tuple], reward_fn: Callable[[str, str, str], Dict[str, float]], prompt_template: str, llm: LLM) -> float:
         load_policy_into_vllm_instance(model, llm)
-        validation_data = random.sample(validation_data, min(1024, len(validation_data)))
+        # validation_data = random.sample(validation_data, min(1024, len(validation_data)))
         prompts = [prompt_template(q) for q, _ in validation_data]
         with torch.inference_mode():
             preds = sample_rollouts(prompts, llm)
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     use_std_normalization = True
     advantage_eps = 1e-6
     cliprange = 0.2
-    learning_rate = 1e-4
+    learning_rate = 1e-5
     device = "cuda:0"
     seed = 42
     wandb_project = "cs336-grpo"
