@@ -355,7 +355,7 @@ if __name__ == "__main__":
     learning_rate = 1e-5
     device = "cuda:0"
     seed = 42
-    wandb_project = f"cs336-grpo-{args.job_id}"
+    wandb_project = f"cs336-grpo-off-{args.job_id}"
 
     def format_prompt(question):
         return r1_zero_prompt_template.replace("{question}", question)
