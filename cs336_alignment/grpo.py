@@ -300,7 +300,7 @@ def grpo_train_loop(
 if __name__ == "__main__":
     import json
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+    from cs336_alignment.drgrpo_grader import r1_zero_reward_fn, question_only_reward_fn
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--loss_type", type=str, required=True, choices=["grpo_no_clip", "grpo_clip"], help="Type of loss to use")
@@ -364,7 +364,7 @@ if __name__ == "__main__":
         train_answers=train_answers,
         validation_data=validation_data,
         r1_zero_prompt=format_prompt,
-        r1_zero_reward_fn=r1_zero_reward_fn,
+        r1_zero_reward_fn=question_only_reward_fn, # r1_zero_reward_fn
         n_grpo_steps=n_grpo_steps,
         rollout_batch_size=rollout_batch_size,
         group_size=group_size,
