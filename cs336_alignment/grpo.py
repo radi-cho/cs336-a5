@@ -314,7 +314,8 @@ if __name__ == "__main__":
     torch.manual_seed(42)
     random.seed(42)
 
-    with open("cs336_alignment/prompts/r1_zero.prompt") as f:
+    # with open("cs336_alignment/prompts/r1_zero.prompt") as f:
+    with open("cs336_alignment/prompts/question_only.prompt") as f:
         r1_zero_prompt_template = f.read()
 
     train_data_path = "/data/a5-alignment/MATH/train.jsonl"
